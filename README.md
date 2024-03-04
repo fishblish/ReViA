@@ -1,7 +1,9 @@
 # search-for-regulatory-variants
 Preparing a tool for searching regulatory variants in the genome.
 
-All key functions are located in the file firstmodule.py, and their execution takes place in the file main.py.
+All key functions are located in directory *src* in the file firstmodule.py, and their execution takes place in the file main.py.
+
+
 
 The successive steps in the analysis are as follows:
 - Selection of variants that are located in regulatory regions and are biallelic.
