@@ -2,8 +2,8 @@ import argparse
 import os
 import firstmodule as fm
 
-base_path = '/home/julia/Desktop/uni/projekt_warianty/all/brain_reg_var-main/'
-programs_path = '/home/julia/Desktop/uni/projekt_warianty/programs'
+base_path = os.getcwd()
+programs_path = base_path + '/programs'
 data_path = base_path + '/data'
 
 
