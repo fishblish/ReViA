@@ -65,11 +65,8 @@ freq_filter_missing = args.freq_filter_missing
 reference_population = args.reference_population
 bh_alpha = args.bh_alpha
 
-if population and reference_population!='ALL':
-    assert reference_population in population, "Reference population must be in population list"
-if not population:
-        population = ['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH']
-population = population + ['ALL']
+assert reference_population in population, "Reference population must be in population list"
+
 
 try:
     os.mkdir(OUTPUT)
