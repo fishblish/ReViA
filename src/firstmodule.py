@@ -4,7 +4,6 @@ from scipy.stats import binom_test, spearmanr
 from statsmodels.sandbox.stats.multicomp import multipletests
 import pybedtools as pbt
 import os
-import re
 import subprocess
 from pybedtools import BedTool
 import matplotlib.pyplot as plt
@@ -77,11 +76,9 @@ def select_biallelic_inside_regulatory_regions(GATK, INPUT_VCF, PROMOTER_REGIONS
         print('Selecting biallelic variants for', r)
         log1 = subprocess.check_output(command1, shell=True, stderr=subprocess.STDOUT,
                                        universal_newlines=True).splitlines()
-        print(f'Biallelic variants inside {r} regions are saved in file: {result_files[r]}')
         select_logs.append(str(log1))
 
         command2 = f"{GATK} CountVariants -V {result_files[r]}"
-        print('Counting biallelic variants for', r)
         log2 = subprocess.check_output(command2, shell=True, stderr=subprocess.STDOUT,
                                        universal_newlines=True).splitlines()
         count_logs.append(log2)
@@ -192,7 +189,6 @@ def select_snps_by_freq(annotated_variants_file_dict, GATK, population, treating
         log = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT,
                                       universal_newlines=True).splitlines()
         select_rare_logs.append(log)
-        print("Done: selecting", target_full_word[target], "snps for", r)
         print("Counting selected", target_full_word[target], "variants for", r)
         count_variants(GATK, result_filtered_files_dict[r])
 
@@ -225,7 +221,6 @@ def select_enriched_snps(filtered_variants_files_dict, GATK, reference_populatio
         log = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT,
                                       universal_newlines=True).splitlines()
         totable_logs.append(log)
-        print("Done: vcf file to table")
     rare_promoter_snps = pd.read_csv(filtered_variants_files_dict['promoter'].replace('.vcf', '.csv'), sep='\t')
     rare_enhancer_snps = pd.read_csv(filtered_variants_files_dict['enhancer'].replace('.vcf', '.csv'), sep='\t')
 
@@ -282,6 +277,7 @@ def assign_genes_to_promoter_snps(rare_enriched_promoter_snps, PROMOTER_REGIONS)
     rare_enriched_promoter_snps_gene = pd.merge(rare_enriched_promoter_snps,
                                                       rare_enriched_promoter_snps_intersection_df, how="left",
                                                       on=["CHROM", "POS"])
+    print('Done: assigning genes to promoters')
     return rare_enriched_promoter_snps_gene
 
 # assign genes to snps which are located inside intronic enhancers 
@@ -425,6 +421,7 @@ def reformat_target_genes_enh(rare_enriched_enhancer_snps_gene_closest_contacts)
 
         rare_enriched_enhancer_snps_genes_collected = pd.concat(
             [rare_enriched_enhancer_snps_genes_collected, pd.DataFrame(row)], ignore_index=True)
+    print('Done: assigning putative genes to enhancers')
     return rare_enriched_enhancer_snps_genes_collected
 
 # Calculate correlation between enhancer activity and gene expression
@@ -487,6 +484,7 @@ def check_signal_gene_expression_correlation_enhancer(rare_enriched_enhancer_snp
         calculate_correlation_enh_gene, args=(samples, GENE_EXPRESSION), axis=1)
     rare_enriched_enhancer_snps_genes_collected_corelations = rare_enriched_enhancer_snps_genes_collected_coverage.drop(
         labels=samples, axis=1)
+    print('Done: calculating correlation between enhancer activity and gene expression')
     return rare_enriched_enhancer_snps_genes_collected_corelations
 
 #remove files with intermediate results, which constain string 'intermediate' in filename
@@ -500,10 +498,10 @@ def remove_unnecessary_files(OUTPUT):
 def import_vcf_sample_level(INPUT_VCF, OUTPUT, GATK, promoter_snps, enhancer_snps):
     command = f'{GATK} VariantsToTable -V {INPUT_VCF}  \
         -F CHROM -F POS -F REF -F ALT -F AC -F AF -F AN -GF AD -GF GT \
-            -O {OUTPUT}/input_vcf_sample_level.csv'
+            -O {OUTPUT}/input_vcf_sample_level_intermediate_result.csv'
     log = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT,
                                         universal_newlines=True).splitlines()
-    all_snps = pd.read_csv(OUTPUT+'/input_vcf_sample_level.csv', sep='\t')
+    all_snps = pd.read_csv(OUTPUT+'/input_vcf_sample_level_intermediate_result.csv', sep='\t')
     promoter_snps = promoter_snps.join(all_snps.set_index(['CHROM', 'POS', 'ALT', 'REF']), on=['CHROM', 'POS', 'ALT', 'REF'], how='left', rsuffix='_all_snps')
     enhancer_snps = enhancer_snps.join(all_snps.set_index(['CHROM', 'POS', 'ALT', 'REF']), on=['CHROM', 'POS', 'ALT', 'REF'], how='left', rsuffix='_all_snps')
 
@@ -535,7 +533,7 @@ def import_vcf_sample_level(INPUT_VCF, OUTPUT, GATK, promoter_snps, enhancer_snp
     return promoter_snps, enhancer_snps
         
 # calculate correlation between genotype and gene expression, returns string with results of correlation tests
-def calculate_correlation_snps_gene(row, counts):
+def calculate_correlation_genotype_gene(row, counts):
     correlations = ""
     
     variant_columns = [col for col in row.index if '.var' in col]
@@ -575,7 +573,7 @@ def calculate_correlation_snps_gene(row, counts):
     else:
         return correlations.rstrip(";")
 
-# choose the best candidate target gene transcript based on the lowest pvalue
+# choose the best candidate target gene transcript based on the lowest pvalue; it is not really used, multiple putative targets are considered later
 def find_best_candidate_target(putative_targets):
     if putative_targets != ".":
         putative_targets_list = putative_targets.split(';')
@@ -600,7 +598,7 @@ def get_gene_transcript(row, counts):
     else:
         return '.'
 
-def check_gene_snps_correlation(GENE_EXPRESSION, promoter_snps, enhancer_snps):
+def check_gene_genotype_correlation(GENE_EXPRESSION, promoter_snps, enhancer_snps):
     # Genes/transcripts normalized counts
     counts = pd.read_csv(GENE_EXPRESSION, sep='\t')
     counts['Gene'] = counts['Transcript'].apply(lambda x: x.split('_')[1])
@@ -610,10 +608,11 @@ def check_gene_snps_correlation(GENE_EXPRESSION, promoter_snps, enhancer_snps):
     promoter_snps['transcript_to_check'] = promoter_snps.apply(get_gene_transcript, args=(counts,), axis=1)
 
     #calculate correlation between genotype and gene expression
-    enhancer_snps["gene_expr_correlations"] = enhancer_snps.apply(calculate_correlation_snps_gene, args=(counts,), axis=1)
-    promoter_snps["gene_expr_correlations"] = promoter_snps.apply(calculate_correlation_snps_gene, args=(counts,), axis=1)
+    enhancer_snps["gene_expr_correlations"] = enhancer_snps.apply(calculate_correlation_genotype_gene, args=(counts,), axis=1)
+    promoter_snps["gene_expr_correlations"] = promoter_snps.apply(calculate_correlation_genotype_gene, args=(counts,), axis=1)
     enhancer_snps[["best_expr_corr_pval", "best_corr_gene"]] = enhancer_snps["gene_expr_correlations"].apply(find_best_candidate_target)
     promoter_snps[["best_expr_corr_pval", "best_corr_gene"]] = promoter_snps["gene_expr_correlations"].apply(find_best_candidate_target)
+    print('Done: calculating correlation between genotype and gene expression')
     return promoter_snps, enhancer_snps
 
 def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT, threshold = 0.1):
@@ -657,5 +656,6 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT, thr
         #saving results to csv
         enhancer_snps.to_csv(OUTPUT+'/final_regulatory_snps_enhancer.csv', sep='\t')
         promoter_snps.to_csv(OUTPUT+'/final_regulatory_snps_promoter.csv', sep='\t')
+    print('Found regulatory variants are saved in files:\n', OUTPUT+'/final_regulatory_snps_enhancer.csv\n', OUTPUT+'/final_regulatory_snps_promoter.csv\n', 'Plots are saved in file:', OUTPUT+'/plots.pdf')
 
 

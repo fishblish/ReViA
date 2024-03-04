@@ -1,13 +1,12 @@
 import argparse
 import os
 import firstmodule as fm
-import subprocess
 
 base_path = '/home/julia/Desktop/uni/projekt_warianty/all/brain_reg_var-main/'
 programs_path = '/home/julia/Desktop/uni/projekt_warianty/programs'
 data_path = base_path + '/data'
 
-#połączyć dane hic z plikiem gtf aby uzyskać dane jak teraz o kontaktach
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--gatk_path", type=str, nargs='?', default= programs_path + \
                     "/gatk/gatk-4.4.0.0/gatk", help="Path to directory containing GATK program.")
@@ -78,7 +77,7 @@ except:
 
     print('Directory ', OUTPUT, ' already exist. Output files will be saved in this localization.')
 
-"""  
+
 #check if ANNOVAR and GATK are installed in provided localization
 flags = fm.check_programs(GATK, ANNOVAR) 
 if flags!= [0,0]:
@@ -93,47 +92,46 @@ fm.index_input_vcf(INPUT_VCF, GATK)
 
 # print how many variants are in input file
 fm.count_variants(GATK, INPUT_VCF) 
-"""
+
 #select biallelic variants located inside regulatory regions
 biallelic_variants_in_regulatory_regions_path = fm.select_biallelic_inside_regulatory_regions(GATK, INPUT_VCF, PROMOTER_REGIONS, ENHANCER_REGIONS, OUTPUT)
 
 #found variants that are enriched in analyzed cohort
 annotated_variants_path = fm.annotate_freq(biallelic_variants_in_regulatory_regions_path, ANNOVAR)
 
+#filter variants by frequency
 filtered_by_freq_variants_file = fm.select_snps_by_freq(annotated_variants_path, GATK, target=freq_filter_target, cutoff=freq_filter_cutoff, population=population, treating_gaps=freq_filter_missing)
 
-rare_enriched_promoter_snps_df, rare_enriched_enhancer_snps_df = fm.select_enriched_snps(filtered_by_freq_variants_file, GATK, bh_alpha=bh_alpha, target=freq_filter_target, reference_population=reference_population)
+#select enriched snps
+enriched_promoter_snps_df, enriched_enhancer_snps_df = fm.select_enriched_snps(filtered_by_freq_variants_file, GATK, bh_alpha=bh_alpha, target=freq_filter_target, reference_population=reference_population)
 
+#assigning genes to promoters and enhancers
+enriched_promoter_snps_gene = fm.assign_genes_to_promoter_snps(enriched_promoter_snps_df, PROMOTER_REGIONS)
 
-rare_enriched_promoter_snps_gene = fm.assign_genes_to_promoter_snps(rare_enriched_promoter_snps_df, PROMOTER_REGIONS)
-
-rare_enriched_enhancer_snps_gene = fm.assign_genes_intronic_enhancer_snps(rare_enriched_enhancer_snps_df, ENHANCER_REGIONS)
+enriched_enhancer_snps_gene = fm.assign_genes_intronic_enhancer_snps(enriched_enhancer_snps_df, ENHANCER_REGIONS)
 
 genes_info_prepared = fm.prepare_genes_info(GENES_INFO)
-rare_enriched_enhancer_snps_gene_closest = \
-    fm.assign_closest_gene_to_enhancers(rare_enriched_enhancer_snps_gene, genes_info_prepared)
+enriched_enhancer_snps_gene_closest = \
+    fm.assign_closest_gene_to_enhancers(enriched_enhancer_snps_gene, genes_info_prepared)
 
-rare_enriched_enhancer_snps_gene_closest_contacts = \
-    fm.assign_chromatin_contacting_gene_to_enhancer(rare_enriched_enhancer_snps_gene_closest, genes_info_prepared, CHROMATIN_CONTACTS)
-rare_enriched_enhancer_snps_genes_collected = \
-    fm.reformat_target_genes_enh(rare_enriched_enhancer_snps_gene_closest_contacts)
+enriched_enhancer_snps_gene_closest_contacts = \
+    fm.assign_chromatin_contacting_gene_to_enhancer(enriched_enhancer_snps_gene_closest, genes_info_prepared, CHROMATIN_CONTACTS)
+enriched_enhancer_snps_genes_collected = \
+    fm.reformat_target_genes_enh(enriched_enhancer_snps_gene_closest_contacts)
 
-rare_enriched_enhancer_snps_genes_collected_corelations = \
-    fm.check_signal_gene_expression_correlation_enhancer(rare_enriched_enhancer_snps_genes_collected, ENHANCER_ACTIVITY, GENE_EXPRESSION)
+#remove unnecessary files created during analysis
 fm.remove_unnecessary_files(OUTPUT)
-promoter_snps_sample_lvl, enhancer_snps_sample_lvl = fm.import_vcf_sample_level(INPUT_VCF, OUTPUT, GATK, rare_enriched_promoter_snps_gene, rare_enriched_enhancer_snps_genes_collected_corelations)
-promoter_snps, enhancer_snps = fm.check_gene_snps_correlation(GENE_EXPRESSION, promoter_snps_sample_lvl, enhancer_snps_sample_lvl)
+
+#calculate correlation between enhancer activity and gene expression
+enriched_enhancer_snps_genes_collected_corelations = \
+    fm.check_signal_gene_expression_correlation_enhancer(enriched_enhancer_snps_genes_collected, ENHANCER_ACTIVITY, GENE_EXPRESSION)
+
+#calculate correlation between genotype and gene expression
+promoter_snps_sample_lvl, enhancer_snps_sample_lvl = fm.import_vcf_sample_level(INPUT_VCF, OUTPUT, GATK, enriched_promoter_snps_gene, enriched_enhancer_snps_genes_collected_corelations)
+promoter_snps, enhancer_snps = fm.check_gene_genotype_correlation(GENE_EXPRESSION, promoter_snps_sample_lvl, enhancer_snps_sample_lvl)
+
+#save and visualize results
 fm.visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT)
 
 
-#funkcje związane z motywami
-
-# snps_bed_files = fm.snps_to_bed_file(rare_enriched_promoter_snps, rare_enriched_enhancer_snps, OUTPUT)
-# fm.search_motifs()
-# fm.score_motifs(snps_bed_files)
-# rare_enriched_promoter_snps_motif, rare_enriched_enhancer_snps_motif = \
-#     fm.select_results(OUTPUT, rare_enriched_promoter_snps, rare_enriched_enhancer_snps)
-
-#saving final results
-#rare_enriched_promoter_snps_motif_gene.to_csv(ANNOTATED_PROMOTER_SNPs, sep = "\t", index = False)
-#rare_enriched_enhancer_snps_motif_genes_collected_corelations.to_csv(ANNOTATED_ENHANCER_SNPs, sep = "\t", index = False)
+#todo: połączyć dane hic z plikiem gtf aby uzyskać dane jak teraz o kontaktach
