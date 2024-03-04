@@ -5,6 +5,8 @@ All key functions are located in directory *src* in the file *firstmodule.py*, a
 
 In directory *data* are located example files, which can be used while running scripts. This directory does not contain .vcf file with variants *Symfonia_all.hard_filtered.selected.vcf.gz*, which was used to obtain results presented in *output* directory.
 
+Having GATK and ANNOVAR programs is necessary to run scripts.
+
 Directory *output* contains example results. They was obtained by running code with following inputs and default parameters:
 - input_vcf = Symfonia_all.hard_filtered.selected.vcf.gz,
 - promoter_regions = brain_promoters_active.bed
