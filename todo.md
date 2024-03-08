@@ -10,7 +10,7 @@ CHROM, POS, REF, ALT, AC, AF, AN, Num homref, Num het, Num homalt, gnomAD_genome
 - p-wartości pokazane do 3 miejsc po przecinku
 - rozdzielić wyniki dla różnych transkryptów na osobne wiersze
 4. Zmiany na wykresach:
-- zapis wariantu: chr1:123456A>T
+- zapis wariantu: chr1:123456A>T ✔
 - etykiety na osi X najlepiej jakby odpowiadały genotypom np. AA AT TT
 - dodać wykresy dla korelacji genotypu z H3K27ac
 5. Zapisać w pliku domyślne przypisania genów do enhancerów, żeby nie przeliczać ich ciągle na nowo
