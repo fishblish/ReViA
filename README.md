@@ -8,7 +8,7 @@ In directory *data* are located example files, which can be used while running s
 Having GATK and Annovar programs is necessary to run scripts. These programs were used in the following versions: GATK version 4.4.0.0, Annovar version: Date: 2020-06-07.
 
 
-Directory *output* contains example results. There are also placed two files: *snsp_enhancer_with_assigned_genes.csv*, *snsp_enhancer_with_assigned_genes.csv*. They contain tables with genes assigned to regulatory regions - this is an intermediate result. The example results were obtained by running code with following inputs and default parameters:
+Directory *output* contains example results. The example results were obtained by running code with following inputs and default parameters:
 - input_vcf = Symfonia_all.hard_filtered.selected.vcf.gz,
 - promoter_regions = brain_promoters_active.bed
 - enhancer_regions = brain_enhancers_active.bed
