@@ -153,7 +153,8 @@ def select_snps_by_freq(annotated_variants_file_dict, GATK, population, treating
     gaps_dict = {'r': '=0.0', 'c': '=100.0'}
     ineq_sign = {'r': '<', 'c': '>'}
     target_full_word = {'r': 'rare', 'c': 'common'}
-    population = list(set(population))
+    population = list(set(population+['ALL']))
+
     annotations = ['gnomAD_genome_' + p for p in population]
     
 
@@ -197,7 +198,7 @@ def select_snps_by_freq(annotated_variants_file_dict, GATK, population, treating
 
 # Selecting SNPs enriched in the analyzed cohort compared to population
 
-def calc_binom_pval(row, p_col='gnomAD_genome_NFE', target='r'):
+def calc_binom_pval(row, p_col, target='r'):
     x = row['AC']
     n = row['AN']
     p = float(row[p_col])
@@ -216,7 +217,7 @@ def select_enriched_snps(filtered_variants_files_dict, GATK, reference_populatio
     for r in ["promoter", "enhancer"]:
         command = f"{GATK} VariantsToTable  -V {filtered_variants_files_dict[r]} " \
                   "-F CHROM -F POS -F REF -F ALT -F AC -F AF -F AN " \
-                  f"-F {reference_population_cmd} " \
+                  f"-F gnomAD_genome_ALL -F {reference_population_cmd} " \
                   f"-O {filtered_variants_files_dict[r].replace('.vcf', '.csv')}"
         log = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT,
                                       universal_newlines=True).splitlines()
@@ -238,12 +239,21 @@ def select_enriched_snps(filtered_variants_files_dict, GATK, reference_populatio
                                                  method='fdr_bh', is_sorted=False, returnsorted=False)
         df['B-H_reject_H0'] = multipletests_correction[0]
         df['corrected_binom_pval'] = multipletests_correction[1]
+
+        #round p-values to 3 decimal places
+        df['binom_pval'] = df['binom_pval'].apply(lambda x: round(x, 4))
+        df['corrected_binom_pval'] = df['corrected_binom_pval'].apply(lambda x: round(x, 4))
+
     rare_enriched_promoter_snps = rare_promoter_snps[rare_promoter_snps["B-H_reject_H0"]]
     rare_enriched_enhancer_snps = rare_enhancer_snps[rare_enhancer_snps["B-H_reject_H0"]]
+    rare_enriched_promoter_snps = rare_enriched_promoter_snps.drop(columns='B-H_reject_H0')
+    rare_enriched_enhancer_snps = rare_enriched_enhancer_snps.drop(columns='B-H_reject_H0')
 
     #left only one column with popultaion frequency
-    cols_to_drop_enh = [col for col in rare_enriched_enhancer_snps.columns if 'gnomAD' in col].remove(reference_population_cmd)
-    cols_to_drop_prom = [col for col in rare_enriched_promoter_snps.columns if 'gnomAD' in col].remove(reference_population_cmd)
+    cols_to_drop_enh = [col for col in rare_enriched_enhancer_snps.columns if ('gnomAD' in col) & (col not in [reference_population_cmd, 'gnomAD_genome_ALL'])]
+    cols_to_drop_prom = [col for col in rare_enriched_promoter_snps.columns if ('gnomAD' in col) & (col not in [reference_population_cmd, 'gnomAD_genome_ALL'])]
+
+
     if cols_to_drop_enh and all(col in rare_enriched_enhancer_snps.columns for col in cols_to_drop_enh):
         rare_enriched_enhancer_snps = rare_enriched_enhancer_snps.drop(cols_to_drop_enh, axis=1)
     if cols_to_drop_prom and all(col in rare_enriched_promoter_snps.columns for col in cols_to_drop_prom):
@@ -305,7 +315,7 @@ def assign_genes_intronic_enhancer_snps(rare_enriched_enhancer_snps_df, ENHANCER
     gnomAD_cols = [col for col in rare_enriched_enhancer_snps_df.columns if 'gnomAD' in col]
     rare_enriched_enhancer_snps_bedtool = pbt.BedTool.from_dataframe(
         rare_enriched_enhancer_snps_df[["CHROM", "POS-1", "POS", "REF", "ALT", "AC", "AF", "AN"]+gnomAD_cols+
-                                       [ "binom_pval","B-H_reject_H0", "corrected_binom_pval"]])
+                                       [ "binom_pval", "corrected_binom_pval"]])
     enh_genes_bedtool = pbt.BedTool.from_dataframe(enh_one_gene)
 
     # intersect 
@@ -314,9 +324,9 @@ def assign_genes_intronic_enhancer_snps(rare_enriched_enhancer_snps_df, ENHANCER
     # reformat intersection to dataframe, keep columns with enhancer coordinates - they will be usefull in the next step
     #dropping POS-1 column
     rare_enriched_enhancer_snps_gene = rare_enriched_enhancer_snps_intersection.to_dataframe(
-        usecols=[0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15],
+        usecols=[0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14],
         names=["CHROM", "POS", "REF", "ALT", "AC", "AF", "AN"]+gnomAD_cols+
-        ["binom_pval","B-H_reject_H0", "corrected_binom_pval", "enh_start", "enh_end", "Gene"])
+        ["binom_pval", "corrected_binom_pval", "enh_start", "enh_end", "Gene"])
     rare_enriched_enhancer_snps_gene["genomic element"] = rare_enriched_enhancer_snps_gene.Gene.apply(
         lambda x: "enhancer intergenic" if x == "." else "enhancer intronic")
     return rare_enriched_enhancer_snps_gene
@@ -406,6 +416,7 @@ def assign_chromatin_contacting_gene_to_enhancer(rare_enriched_enhancer_snps_gen
 def reformat_target_genes_enh(rare_enriched_enhancer_snps_gene_closest_contacts):
     rare_enriched_enhancer_snps_genes_collected = pd.DataFrame()
 
+
     for name, group in rare_enriched_enhancer_snps_gene_closest_contacts.groupby(["CHROM", "POS", "REF", "ALT"]):
         containing_genes = [gene + "(containing)" for gene in group["Gene"].unique() if gene != "."]
         closest_genes = [gene + "(closest)" for gene in group["closest gene"].unique() if gene != "."]
@@ -415,7 +426,7 @@ def reformat_target_genes_enh(rare_enriched_enhancer_snps_gene_closest_contacts)
         gnomAD_col = [col for col in group.columns if 'gnomAD' in col]
         group["Gene"] = ";".join(all_genes)
         row = group[['CHROM', 'POS', 'REF', 'ALT',
-                     'AC', 'AF', 'AN']+gnomAD_col+['binom_pval', 'B-H_reject_H0',
+                     'AC', 'AF', 'AN']+gnomAD_col+['binom_pval',
                      'corrected_binom_pval', 'enh_start', 'enh_end', 'Gene', 
                      'genomic element']].drop_duplicates()
 
@@ -434,7 +445,6 @@ def calculate_correlation_enh_gene(row, sample_names, GENE_EXPRESSION):
     enh_act_vector = row[sample_names].values
 
     genes = set([el.split("(")[0] for el in row["Gene"].split(';')])
-
     # iterate over all target genes assigned to this variant
     for gene in genes:
         gene_name = gene.split('/')[1]
@@ -457,7 +467,7 @@ def calculate_correlation_enh_gene(row, sample_names, GENE_EXPRESSION):
             if len(gene_correlations.keys()) > 0:
                 min_pval = min(gene_correlations.keys())
                 if min_pval < 0.15:
-                    correlations += gene_name + "/" + gene_correlations[min_pval][1].split("_")[0] + "/" + str(min_pval) + ";"
+                    correlations += gene_name + "/" + gene_correlations[min_pval][1].split("_")[0] + "/" + str(round(min_pval,3)) + ";"
 
         else:
             pass
@@ -466,6 +476,15 @@ def calculate_correlation_enh_gene(row, sample_names, GENE_EXPRESSION):
     else:
         return correlations.rstrip(";")
 
+def change_table_format_promoter(promoter_snps):
+    new_promoter_snps = pd.DataFrame()
+
+    for index,row in promoter_snps.iterrows():
+        for gene in row['Gene'].split(','):
+            new_row = row.copy()
+            new_row['Gene'] = gene
+            new_promoter_snps = pd.concat([new_promoter_snps, pd.DataFrame([new_row])], ignore_index=True)
+    return new_promoter_snps
 
 def check_signal_gene_expression_correlation_enhancer(rare_enriched_enhancer_snps_genes_collected,
                                                       ENHANCER_ACTIVITY, GENE_EXPRESSION):
@@ -484,6 +503,7 @@ def check_signal_gene_expression_correlation_enhancer(rare_enriched_enhancer_snp
         calculate_correlation_enh_gene, args=(samples, GENE_EXPRESSION), axis=1)
     rare_enriched_enhancer_snps_genes_collected_corelations = rare_enriched_enhancer_snps_genes_collected_coverage.drop(
         labels=samples, axis=1)
+    rare_enriched_enhancer_snps_genes_collected_corelations.to_csv('sth_to_check.csv')
     print('Done: calculating correlation between enhancer activity and gene expression')
     return rare_enriched_enhancer_snps_genes_collected_corelations
 
@@ -493,6 +513,37 @@ def remove_unnecessary_files(OUTPUT):
         if 'intermediate' in file:
             os.remove(OUTPUT+'/'+file)
 
+
+def change_table_format_enh(enhancer_snps):
+    new_enhancer_snps = pd.DataFrame()
+
+    for index,row in enhancer_snps.iterrows():
+
+        for gene in row['Gene'].split(';'):
+            if str(row['POS'])=='13892036':
+                print('row: ', row)
+                print('gene: ', gene)
+            new_row = row.copy()
+            new_row['Gene'] = gene
+            
+            if ';' in row['H3K27ac-expression correlation p-values']:
+                new_row['H3K27ac-expression correlation p-values'] = [el for el in row['H3K27ac-expression correlation p-values'].split(';') if gene.split('/')[1].split('(')[0]==el.split('/')[0]]
+                new_row['H3K27ac-expression correlation p-values'] = ';'.join(new_row['H3K27ac-expression correlation p-values'])
+                if str(row['POS'])=='13892036':
+                    print('new_row: ', new_row)
+                if new_row['H3K27ac-expression correlation p-values'] == '':
+                    new_row['H3K27ac-expression correlation p-values'] = '.'
+            else:
+                if gene.split('/')[1].split('(')[0] == row['H3K27ac-expression correlation p-values'].split('/')[0]:
+                    new_row['H3K27ac-expression correlation p-values'] = row['H3K27ac-expression correlation p-values']
+                else:
+                    new_row['H3K27ac-expression correlation p-values'] = '.'
+            new_enhancer_snps = pd.concat([new_enhancer_snps, pd.DataFrame([new_row])], ignore_index=True)
+    new_enhancer_snps['relation'] = new_enhancer_snps['Gene'].apply(lambda x: x.split('(')[1].split(')')[0])
+    new_enhancer_snps['Gene'] = new_enhancer_snps['Gene'].apply(lambda x: x.split('(')[0])
+    new_enhancer_snps = new_enhancer_snps.groupby(new_enhancer_snps.columns.difference(['relation']).tolist(), as_index=False).agg({'relation': ';'.join})
+    print(new_enhancer_snps)
+    return new_enhancer_snps
 
 # add sample data to promoter and enhancer snps
 def import_vcf_sample_level(INPUT_VCF, OUTPUT, GATK, promoter_snps, enhancer_snps):
@@ -541,7 +592,6 @@ def calculate_correlation_genotype_gene(row, counts):
     het_indices = [i for i,val in enumerate(row[variant_columns]) if val != './.' and int(float(val)) == 1]
     homalt_indices = [i for i,val in enumerate(row[variant_columns]) if val != './.' and int(float(val)) == 2]
     
-    
     homref_patients = set([variant_columns[i].split('.')[0] for i in homref_indices])
     het_patients = set([variant_columns[i].split('.')[0] for i in het_indices])
     homalt_patients = set([variant_columns[i].split('.')[0] for i in homalt_indices])
@@ -549,10 +599,9 @@ def calculate_correlation_genotype_gene(row, counts):
     
     transcripts = set([el for el in row["transcript_to_check"].split(';')])
     transcripts = ['_'.join(transcript.split('/')) for transcript in transcripts]
-    
     #iterate over all target transcripts assigned to this variant
     if transcripts == ['.']:
-        return "."
+        return pd.Series([".","."])
     for transcript in transcripts:
         transcript_name = transcript.replace('/', '_')
         transcript_counts = counts[counts['Transcript'] == transcript_name]
@@ -564,23 +613,23 @@ def calculate_correlation_genotype_gene(row, counts):
         if np.std(expression_vector) > 0.05: 
             rho, pval = spearmanr(genotype_vector, expression_vector)
             if str(rho) != 'nan':
-                correlations += transcript + "/pval=" + "%.5f" % pval + "/R=" + "%.5f" % rho + ";"
+                correlations += transcript + f"/pval={round(pval,3)} /R={round(rho,3)};"
                         
         else:
             pass
     if len(correlations) == 0:
-        return "."
+        return pd.Series([".","."])
     else:
-        return correlations.rstrip(";")
+        return pd.Series([correlations.rstrip(";"), round(pval,3)])
 
-# choose the best candidate target gene transcript based on the lowest pvalue; it is not really used, multiple putative targets are considered later
+# choose the best candidate target gene transcript based on the lowest pvalue
 def find_best_candidate_target(putative_targets):
     if putative_targets != ".":
         putative_targets_list = putative_targets.split(';')
         pvalues = [float(target.split('=')[1].split('/')[0]) for target in putative_targets_list]
         min_pval = min(pvalues)
         best_candidate = putative_targets_list[pvalues.index(min_pval)]
-        return pd.Series([min_pval, best_candidate], index=["best_expr_corr_pval", "best_corr_gene"]) 
+        return pd.Series([round(min_pval,3), best_candidate], index=["best_expr_corr_pval", "best_corr_gene"]) 
     else:
         return pd.Series([np.nan, np.nan], index=["best_expr_corr_pval", "best_corr_gene"])
         
@@ -590,8 +639,8 @@ def get_gene_transcript(row, counts):
     if row['Gene'] != '.':
         gene_names = [x.split('/')[1] for x in row['Gene'].split(',')]
 
-        transcripts = ';'.join(counts[counts['Gene'].isin(gene_names)]['Transcript'].values)
-        if transcripts == '':
+        transcripts = counts[counts['Gene'].isin(gene_names)]['Transcript'].values
+        if len(transcripts) == 0:
             print('Transcripts not found for gene ', gene_names)
             return '.'
         return transcripts
@@ -605,37 +654,49 @@ def check_gene_genotype_correlation(GENE_EXPRESSION, promoter_snps, enhancer_snp
     
     #assign transcripts to snps related to enhancers and promoters
     enhancer_snps['transcript_to_check'] = enhancer_snps['H3K27ac-expression correlation p-values'].apply(lambda x: x.split('/')[1]+'_'+x.split('/')[0] if x != '.' else '.')
-    promoter_snps['transcript_to_check'] = promoter_snps.apply(get_gene_transcript, args=(counts,), axis=1)
+    promoter_snps_new = pd.DataFrame()
+    for index, row in promoter_snps.iterrows():
+        transcripts = get_gene_transcript(row, counts)
+        to_concat = pd.DataFrame([row]*len(transcripts))
+        to_concat['transcript_to_check'] = transcripts
+        promoter_snps_new = pd.concat([promoter_snps_new, to_concat], ignore_index=True)
+    promoter_snps = promoter_snps_new.copy()
+    
+    print(promoter_snps)
 
     #calculate correlation between genotype and gene expression
-    enhancer_snps["gene_expr_correlations"] = enhancer_snps.apply(calculate_correlation_genotype_gene, args=(counts,), axis=1)
-    promoter_snps["gene_expr_correlations"] = promoter_snps.apply(calculate_correlation_genotype_gene, args=(counts,), axis=1)
-    enhancer_snps[["best_expr_corr_pval", "best_corr_gene"]] = enhancer_snps["gene_expr_correlations"].apply(find_best_candidate_target)
-    promoter_snps[["best_expr_corr_pval", "best_corr_gene"]] = promoter_snps["gene_expr_correlations"].apply(find_best_candidate_target)
+    enhancer_snps[["gene_expr_correlations",'gene_expr_correlations_pval']] = enhancer_snps.apply(calculate_correlation_genotype_gene, args=(counts,), axis=1)
+    promoter_snps[["gene_expr_correlations",'gene_expr_correlations_pval']] = promoter_snps.apply(calculate_correlation_genotype_gene, args=(counts,), axis=1)
     print('Done: calculating correlation between genotype and gene expression')
     return promoter_snps, enhancer_snps
 
-def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT, threshold = 0.1):
-    promoter_snps = promoter_snps[promoter_snps['best_expr_corr_pval'] < threshold]
-    enhancer_snps = enhancer_snps[enhancer_snps['best_expr_corr_pval'] < threshold]
-    promoter_snps = promoter_snps.sort_values(by = 'best_expr_corr_pval')
-    enhancer_snps = enhancer_snps.sort_values(by = 'best_expr_corr_pval')
+
+def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT, threshold = 0.05):
+    promoter_snps = promoter_snps[promoter_snps['gene_expr_correlations_pval'] != '.']
+    enhancer_snps = enhancer_snps[enhancer_snps['gene_expr_correlations_pval'] != '.']
+    promoter_snps = promoter_snps[promoter_snps['gene_expr_correlations_pval'] < threshold]
+    enhancer_snps = enhancer_snps[enhancer_snps['gene_expr_correlations_pval'] < threshold]
+    promoter_snps = promoter_snps.sort_values(by = 'gene_expr_correlations_pval')
+    enhancer_snps = enhancer_snps.sort_values(by = 'gene_expr_correlations_pval')
     counts = pd.read_csv(GENE_EXPRESSION, sep='\t')
     counts['Gene'] = counts['Transcript'].apply(lambda x: x.split('_')[1])
-    
+
     #save plots to one pdf file
     with PdfPages(OUTPUT+'/plots.pdf') as pdf:  
         for index, row in enhancer_snps.iterrows():
             samples = [col.split('.')[0] for col in enhancer_snps.columns if '.var' in col]
             samples = [el for el in samples if row[el+'.var']!='./.']
             vars = row[[sample + '.var' for sample in samples]]
-            transcript  = row['best_corr_gene'].split('/')[0]
+            vars = [var+np.random.uniform(-0.1, 0.1) for var in vars]
+            transcript  = row['gene_expr_correlations'].split('/')[0]
             acts = counts[counts["Transcript"]==transcript][samples]
             plt.scatter(vars, acts, s=5, marker='*')
+            genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
+            plt.xticks([0, 1, 2], genotype)
             plt.xlabel('Genotype')
             plt.ylabel('Expression for transcript '+transcript)
             genotype = str(row['Num homref'])+'/'+str(row['Num het'])+'/'+str(row['Num homalt'])
-            plt.title('SNP in enhancer: POS '+str(row['POS'])+' '+row['CHROM']+' '+row['REF']+'/'+row['ALT']+' pvalue '+ str(row['best_expr_corr_pval'])+' '+genotype)
+            plt.title('SNP in enhancer '+row['CHROM']+':'+str(row['POS'])+row['REF']+'>'+row['ALT']+' pvalue '+ str(row['gene_expr_correlations_pval'])+' '+genotype)
             pdf.savefig() 
             plt.close()
 
@@ -643,19 +704,31 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT, thr
             samples = [col.split('.')[0] for col in promoter_snps.columns if '.var' in col]
             samples = [el for el in samples if row[el+'.var']!='./.']
             vars = row[[sample + '.var' for sample in samples]]
-            transcript  = row['best_corr_gene'].split('/')[0]
+            vars = [var+np.random.uniform(-0.1, 0.1) for var in vars]
+            transcript  = row['gene_expr_correlations'].split('/')[0]
             acts = counts[counts["Transcript"]==transcript][samples]
             plt.scatter(vars, acts, s=5, marker='*')
+            genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
+            plt.xticks([0, 1, 2], genotype)
             plt.xlabel('Genotype')
             plt.ylabel('Expression for transcript '+transcript)
             genotype = str(row['Num homref'])+'/'+str(row['Num het'])+'/'+str(row['Num homalt'])
-            plt.title('SNP in promoter: POS '+str(row['POS'])+' '+row['CHROM']+' '+row['REF']+'/'+row['ALT']+' pvalue '+ str(row['best_expr_corr_pval'])+' '+genotype)
+            plt.title('SNP in promoter '+row['CHROM']+':'+str(row['POS'])+row['REF']+'>'+row['ALT']+' pvalue '+ str(row['gene_expr_correlations_pval'])+' '+genotype)
             pdf.savefig()  
             plt.close()
         
-        #saving results to csv
-        enhancer_snps.to_csv(OUTPUT+'/final_regulatory_snps_enhancer.csv', sep='\t')
-        promoter_snps.to_csv(OUTPUT+'/final_regulatory_snps_promoter.csv', sep='\t')
+    # dropping not important columns
+    cols_to_drop_enh = [col for col in enhancer_snps.columns if (('.AD' in col) or ('.GT' in col) or ('.var' in col))]
+    cols_to_drop_prom = [col for col in promoter_snps.columns if (('.AD' in col) or ('.GT' in col) or ('.var' in col))]
+    cols_to_drop_enh = cols_to_drop_enh +['enh_start', 'enh_end','gene_expr_correlations_pval','transcript_to_check']
+    cols_to_drop_prom = cols_to_drop_prom +['gene_expr_correlations_pval','transcript_to_check']
+    cols_to_drop_enh = cols_to_drop_enh + [col for col in enhancer_snps.columns if 'all_snps' in col]
+    cols_to_drop_prom = cols_to_drop_prom + [col for col in promoter_snps.columns if 'all_snps' in col]
+    enhancer_snps = enhancer_snps.drop(columns = cols_to_drop_enh)
+    promoter_snps = promoter_snps.drop(columns = cols_to_drop_prom)
+    #saving results to csv
+    enhancer_snps.to_csv(OUTPUT+'/final_regulatory_snps_enhancer.csv', sep='\t')
+    promoter_snps.to_csv(OUTPUT+'/final_regulatory_snps_promoter.csv', sep='\t')
     print('Found regulatory variants are saved in files:\n', OUTPUT+'/final_regulatory_snps_enhancer.csv\n', OUTPUT+'/final_regulatory_snps_promoter.csv\n', 'Plots are saved in file:', OUTPUT+'/plots.pdf')
 
 
