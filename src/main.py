@@ -145,19 +145,17 @@ if DEFAULT_ENHANCERS_GENES_ASSIGNMENT_is_available==0:
     assigned_genes_to_enhancers = enhancer_snps[['enh_start','enh_end','Gene','genomic element','H3K27ac-expression correlation p-values','relation']].drop_duplicates()
     assigned_genes_to_enhancers.to_csv(OUTPUT + '/assigned_genes_to_enhancers.csv')
 
-enriched_enhancer_snps_gene.to_csv(OUTPUT + '/middle_result_enriched_enhancer_snps.csv')
-enriched_promoter_snps_gene.to_csv(OUTPUT + '/middle_result_enriched_promoter_snps.csv')
+# saved intermediate results to testing
+# enriched_enhancer_snps_gene.to_csv(OUTPUT + '/middle_result_enriched_enhancer_snps.csv')
+# enriched_promoter_snps_gene.to_csv(OUTPUT + '/middle_result_enriched_promoter_snps.csv')
 
-enriched_enhancer_snps_gene = pd.read_csv(OUTPUT + '/middle_result_enriched_enhancer_snps.csv')
-enriched_promoter_snps_gene = pd.read_csv(OUTPUT + '/middle_result_enriched_promoter_snps.csv')
+# enriched_enhancer_snps_gene = pd.read_csv(OUTPUT + '/middle_result_enriched_enhancer_snps.csv')
+# enriched_promoter_snps_gene = pd.read_csv(OUTPUT + '/middle_result_enriched_promoter_snps.csv')
 assigned_genes_to_enhaners = pd.read_csv(data_path + '/assigned_genes_to_enhancers.csv')
 
 #enriched_enhancer_snps_df join with assigned_genes_to_enhancers
 enriched_enhancer_snps = enriched_enhancer_snps_gene.drop(columns=['Gene'])
 enriched_enhancer_snps_genes_collected_corelations = enriched_enhancer_snps.merge(assigned_genes_to_enhaners, left_on=['enh_start', 'enh_end', 'genomic element'], right_on=['enh_start', 'enh_end','genomic element'], how='right')
-enriched_enhancer_snps_genes_collected_corelations.to_csv(OUTPUT+'/sth_to_check_merged.csv')
-assigned_genes_to_enhaners.to_csv(OUTPUT+'/sth_to_check_assignment.csv')
-enriched_enhancer_snps.to_csv(OUTPUT+'/sth_to_check_snps.csv')
 
 enriched_promoter_snps_gene = fm.change_table_format_promoter(enriched_promoter_snps_gene)
 #calculate correlation between genotype and gene expression
