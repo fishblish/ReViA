@@ -73,7 +73,7 @@ bh_alpha = args.bh_alpha
 if reference_population != 'ALL':
     assert reference_population in population, "Reference population must be in population list"
 
-
+'''
 try:
     os.mkdir(OUTPUT)
 except:
@@ -144,12 +144,12 @@ if DEFAULT_ENHANCERS_GENES_ASSIGNMENT_is_available==0:
 
     assigned_genes_to_enhancers = enhancer_snps[['enh_start','enh_end','Gene','genomic element','H3K27ac-expression correlation p-values','relation']].drop_duplicates()
     assigned_genes_to_enhancers.to_csv(OUTPUT + '/assigned_genes_to_enhancers.csv')
-
+'''
 # saved intermediate results to testing
 # enriched_enhancer_snps_gene.to_csv(OUTPUT + '/middle_result_enriched_enhancer_snps.csv')
 # enriched_promoter_snps_gene.to_csv(OUTPUT + '/middle_result_enriched_promoter_snps.csv')
-# enriched_enhancer_snps_gene = pd.read_csv(OUTPUT + '/middle_result_enriched_enhancer_snps.csv')
-# enriched_promoter_snps_gene = pd.read_csv(OUTPUT + '/middle_result_enriched_promoter_snps.csv')
+enriched_enhancer_snps_gene = pd.read_csv(OUTPUT + '/middle_result_enriched_enhancer_snps.csv')
+enriched_promoter_snps_gene = pd.read_csv(OUTPUT + '/middle_result_enriched_promoter_snps.csv')
     
 assigned_genes_to_enhaners = pd.read_csv(DEFAULT_ENHANCERS_GENES_ASSIGNMENT)
 

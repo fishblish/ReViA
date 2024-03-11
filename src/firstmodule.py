@@ -693,7 +693,7 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT, thr
             plt.xlabel('Genotype')
             plt.ylabel('Expression for transcript '+transcript)
             genotype = str(row['Num homref'])+'/'+str(row['Num het'])+'/'+str(row['Num homalt'])
-            pval = row['gene_expr_correlations'].split('/')[1].split('=')[0]
+            pval = row['gene_expr_correlations'].split('/')[1].split('=')[1]
             plt.title('SNP in enhancer '+row['CHROM']+':'+str(row['POS'])+row['REF']+'>'+row['ALT']+' pvalue '+ str(pval)+' '+genotype)
             pdf.savefig() 
             plt.close()
@@ -711,7 +711,7 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT, thr
             plt.xlabel('Genotype')
             plt.ylabel('Expression for transcript '+transcript)
             genotype = str(row['Num homref'])+'/'+str(row['Num het'])+'/'+str(row['Num homalt'])
-            pval = row['gene_expr_correlations'].split('/')[1].split('=')[0]
+            pval = row['gene_expr_correlations'].split('/')[1].split('=')[1]
             plt.title('SNP in promoter '+row['CHROM']+':'+str(row['POS'])+row['REF']+'>'+row['ALT']+' pvalue '+ str(pval)+' '+genotype)
             pdf.savefig()  
             plt.close()
@@ -727,6 +727,21 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT, thr
     promoter_snps = promoter_snps.drop(columns = cols_to_drop_prom)
     enhancer_snps = enhancer_snps.drop_duplicates()
     promoter_snps = promoter_snps.drop_duplicates()
+
+    #changing columns
+    enhancer_snps['Gene_name'] = enhancer_snps['Gene'].apply(lambda x: x.split('/')[1])
+    enhancer_snps['Gene_ID'] = enhancer_snps['Gene'].apply(lambda x: x.split('/')[0])
+    enhancer_snps['Transcript'] = enhancer_snps['gene_expr_correlations'].apply(lambda x: x.split('/')[0].split('_')[0])
+    enhancer_snps['p-value_for_correlation_genotype_vs_expression'] = enhancer_snps['gene_expr_correlations'].apply(lambda x: x.split('/')[1].split('=')[1])
+    enhancer_snps['p-value_for_correlation_expression_vs_h3k27ac'] = enhancer_snps['H3K27ac-expression correlation p-values'].apply(lambda x: x.split('/')[-1])
+    enhancer_snps = enhancer_snps.drop(columns = ['gene_expr_correlations', 'H3K27ac-expression correlation p-values',"Gene"]).reset_index(drop=True)
+
+    promoter_snps['Gene_name'] = promoter_snps['Gene'].apply(lambda x: x.split('/')[1])
+    promoter_snps['Gene_ID'] = promoter_snps['Gene'].apply(lambda x: x.split('/')[0])
+    promoter_snps['Transcript'] = promoter_snps['gene_expr_correlations'].apply(lambda x: x.split('/')[0].split('_')[0])
+    promoter_snps['p-value_for_correlation_genotype_vs_expression'] = promoter_snps['gene_expr_correlations'].apply(lambda x: x.split('/')[1].split('=')[1])
+    promoter_snps = promoter_snps.drop(columns = ['gene_expr_correlations',"Gene"]).reset_index(drop=True)
+    print(enhancer_snps.columns, promoter_snps.columns)
 
     #saving results to csv
     enhancer_snps.to_csv(OUTPUT+'/final_regulatory_snps_enhancer.csv', sep='\t')
