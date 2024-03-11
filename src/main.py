@@ -30,7 +30,7 @@ parser.add_argument("--chromatin_contacts", type=str, nargs='?', default= data_p
                     help="Path to directory containing bed file with chromatin contacts.")
 parser.add_argument("--genes_info", type=str, nargs='?', default= data_path + '/hg38_full.genes.gtf', \
                     help="Path to directory containing file with information about genes.")
-parser.add_argument("--default_enhancers_genes_assignment", type=str, default=data_path+'/assigned_genes_to_enhancers.csv', nargs='?', \
+parser.add_argument("--default_enhancers_genes_assignment", type=str, default='output/assigned_genes_to_enhancers.csv', nargs='?', \
                     help="You can provide path to already assigned genes to enhancers. It should have columns: enh_start, enh_end, Gene, genomic element, H3K27ac-expression correlation p-values, relation.\
                         If you won't provide path, genes will be assigned to enhancers during analysis.")
 
@@ -148,10 +148,10 @@ if DEFAULT_ENHANCERS_GENES_ASSIGNMENT_is_available==0:
 # saved intermediate results to testing
 # enriched_enhancer_snps_gene.to_csv(OUTPUT + '/middle_result_enriched_enhancer_snps.csv')
 # enriched_promoter_snps_gene.to_csv(OUTPUT + '/middle_result_enriched_promoter_snps.csv')
-
 # enriched_enhancer_snps_gene = pd.read_csv(OUTPUT + '/middle_result_enriched_enhancer_snps.csv')
 # enriched_promoter_snps_gene = pd.read_csv(OUTPUT + '/middle_result_enriched_promoter_snps.csv')
-assigned_genes_to_enhaners = pd.read_csv(data_path + '/assigned_genes_to_enhancers.csv')
+    
+assigned_genes_to_enhaners = pd.read_csv(DEFAULT_ENHANCERS_GENES_ASSIGNMENT)
 
 #enriched_enhancer_snps_df join with assigned_genes_to_enhancers
 enriched_enhancer_snps = enriched_enhancer_snps_gene.drop(columns=['Gene'])

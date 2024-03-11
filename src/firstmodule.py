@@ -673,17 +673,10 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT, thr
     counts = pd.read_csv(GENE_EXPRESSION, sep='\t')
     counts['Gene'] = counts['Transcript'].apply(lambda x: x.split('_')[1])
 
-    # dropping not important columns
-    cols_to_drop_enh = [col for col in enhancer_snps.columns if (('.AD' in col) or ('.GT' in col) or ('.var' in col))]
-    cols_to_drop_prom = [col for col in promoter_snps.columns if (('.AD' in col) or ('.GT' in col) or ('.var' in col))]
-    cols_to_drop_enh = cols_to_drop_enh +['enh_start', 'enh_end','gene_expr_correlations_pval','transcript_to_check']
-    cols_to_drop_prom = cols_to_drop_prom +['gene_expr_correlations_pval','transcript_to_check']
-    cols_to_drop_enh = cols_to_drop_enh + [col for col in enhancer_snps.columns if ('all_snps' in col) or ('Unnamed' in col)]
-    cols_to_drop_prom = cols_to_drop_prom + [col for col in promoter_snps.columns if ('all_snps' in col) or ('Unnamed' in col)]
-    enhancer_snps = enhancer_snps.drop(columns = cols_to_drop_enh)
-    promoter_snps = promoter_snps.drop(columns = cols_to_drop_prom)
     enhancer_snps = enhancer_snps.drop_duplicates()
     promoter_snps = promoter_snps.drop_duplicates()
+    enhancer_snps.to_csv(OUTPUT+'/sth_enh.csv', sep='\t')
+    promoter_snps.to_csv(OUTPUT+'/sth_prom.csv', sep='\t')
 
     #save plots to one pdf file
     with PdfPages(OUTPUT+'/plots.pdf') as pdf:  
@@ -694,7 +687,6 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT, thr
             vars = [var+np.random.uniform(-0.1, 0.1) for var in vars]
             transcript  = row['gene_expr_correlations'].split('/')[0]
             acts = counts[counts["Transcript"]==transcript][samples]
-            print('vars ', vars, 'acts ', acts)
             plt.scatter(vars, acts, s=5, marker='*')
             genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
             plt.xticks([0, 1, 2], genotype)
@@ -724,6 +716,17 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT, thr
             pdf.savefig()  
             plt.close()
         
+    # dropping not important columns
+    cols_to_drop_enh = [col for col in enhancer_snps.columns if (('.AD' in col) or ('.GT' in col) or ('.var' in col))]
+    cols_to_drop_prom = [col for col in promoter_snps.columns if (('.AD' in col) or ('.GT' in col) or ('.var' in col))]
+    cols_to_drop_enh = cols_to_drop_enh +['enh_start', 'enh_end','gene_expr_correlations_pval','transcript_to_check']
+    cols_to_drop_prom = cols_to_drop_prom +['gene_expr_correlations_pval','transcript_to_check']
+    cols_to_drop_enh = cols_to_drop_enh + [col for col in enhancer_snps.columns if ('all_snps' in col) or ('Unnamed' in col)]
+    cols_to_drop_prom = cols_to_drop_prom + [col for col in promoter_snps.columns if ('all_snps' in col) or ('Unnamed' in col)]
+    enhancer_snps = enhancer_snps.drop(columns = cols_to_drop_enh)
+    promoter_snps = promoter_snps.drop(columns = cols_to_drop_prom)
+    enhancer_snps = enhancer_snps.drop_duplicates()
+    promoter_snps = promoter_snps.drop_duplicates()
 
     #saving results to csv
     enhancer_snps.to_csv(OUTPUT+'/final_regulatory_snps_enhancer.csv', sep='\t')
