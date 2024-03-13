@@ -23,7 +23,7 @@ parser.add_argument("--enhancer_regions", type=str, nargs='?', default= data_pat
                         comma separated, '.' for intergenic enhancers = no gene overlaps.")
 parser.add_argument("--output", type=str, nargs='?', default= "output", help="Name of directory to save outputs in.")
 parser.add_argument("--enhancer_activity", type=str, nargs='?', default= data_path + "/h3k27ac_coverage_quantile_normalized.csv", \
-                    help="Path to directory containing csv file with enhancer activity.")
+                    help="Path to directory containing csv file with enhancer activity. It should have columns 'chr', 'start', 'end' and sample names.")
 parser.add_argument("--gene_expression", type=str, nargs='?', default= data_path + "/transcrtpts_rnaseq_quantile_normalized.csv", \
                     help="Path to directory containing csv file with gene expression. It should have column 'Transcript' with data in form transcipt/gene name.")
 parser.add_argument("--chromatin_contacts", type=str, nargs='?', default= data_path + "/predicted_contacts.bed", \
@@ -33,7 +33,7 @@ parser.add_argument("--genes_info", type=str, nargs='?', default= data_path + '/
 parser.add_argument("--default_enhancers_genes_assignment", type=str, default='output/assigned_genes_to_enhancers.csv', nargs='?', \
                     help="You can provide path to already assigned genes to enhancers. It should have columns: enh_start, enh_end, Gene, genomic element, H3K27ac-expression correlation p-values, relation.\
                         If you won't provide path, genes will be assigned to enhancers during analysis.")
-
+# 
 
 parser.add_argument("--freq_filter_target", type=str, choices=['r', 'c'], default='r', nargs='?', \
                     help="Choose 'r' (rare) or 'c' (common). It expresses if you want to select rare or common variants considering frequency in population")
@@ -73,14 +73,14 @@ bh_alpha = args.bh_alpha
 if reference_population != 'ALL':
     assert reference_population in population, "Reference population must be in population list"
 
-'''
+
 try:
     os.mkdir(OUTPUT)
 except:
 
     print('Directory ', OUTPUT, ' already exist. Output files will be saved in this localization.')
 
-
+'''
 #check if ANNOVAR and GATK are installed in provided localization
 flags = fm.check_programs(GATK, ANNOVAR) 
 if flags!= [0,0]:
@@ -144,14 +144,19 @@ if DEFAULT_ENHANCERS_GENES_ASSIGNMENT_is_available==0:
 
     assigned_genes_to_enhancers = enhancer_snps[['enh_start','enh_end','Gene','genomic element','H3K27ac-expression correlation p-values','relation']].drop_duplicates()
     assigned_genes_to_enhancers.to_csv(OUTPUT + '/assigned_genes_to_enhancers.csv')
+
+else:
+    assigned_genes_to_enhaners = pd.read_csv(DEFAULT_ENHANCERS_GENES_ASSIGNMENT)
 '''
-# saved intermediate results to testing
+#saved intermediate results to testing
 # enriched_enhancer_snps_gene.to_csv(OUTPUT + '/middle_result_enriched_enhancer_snps.csv')
 # enriched_promoter_snps_gene.to_csv(OUTPUT + '/middle_result_enriched_promoter_snps.csv')
+
+assigned_genes_to_enhaners = pd.read_csv(DEFAULT_ENHANCERS_GENES_ASSIGNMENT)
 enriched_enhancer_snps_gene = pd.read_csv(OUTPUT + '/middle_result_enriched_enhancer_snps.csv')
 enriched_promoter_snps_gene = pd.read_csv(OUTPUT + '/middle_result_enriched_promoter_snps.csv')
     
-assigned_genes_to_enhaners = pd.read_csv(DEFAULT_ENHANCERS_GENES_ASSIGNMENT)
+
 
 #enriched_enhancer_snps_df join with assigned_genes_to_enhancers
 enriched_enhancer_snps = enriched_enhancer_snps_gene.drop(columns=['Gene'])
@@ -162,9 +167,11 @@ enriched_promoter_snps_gene = fm.change_table_format_promoter(enriched_promoter_
 promoter_snps_sample_lvl, enhancer_snps_sample_lvl = fm.import_vcf_sample_level(INPUT_VCF, OUTPUT, GATK, enriched_promoter_snps_gene, enriched_enhancer_snps_genes_collected_corelations)
 promoter_snps, enhancer_snps = fm.check_gene_genotype_correlation(GENE_EXPRESSION, promoter_snps_sample_lvl, enhancer_snps_sample_lvl)
 
+enhancer_snps = fm.check_genotype_enhancer_correlation(enhancer_snps,ENHANCER_ACTIVITY)
+
 #remove unnecessary files created during analysis
 fm.remove_unnecessary_files(OUTPUT)
 
 #save and visualize results
-fm.visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT)
+fm.visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHANCER_ACTIVITY)
 
