@@ -746,8 +746,6 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
 
     enhancer_snps = enhancer_snps.drop_duplicates()
     promoter_snps = promoter_snps.drop_duplicates()
-    enhancer_snps.to_csv(OUTPUT+'/sth_enh.csv', sep='\t')
-    promoter_snps.to_csv(OUTPUT+'/sth_prom.csv', sep='\t')
 
     #save plots to one pdf file
     with PdfPages(OUTPUT+'/plots.pdf') as pdf:  
@@ -769,7 +767,7 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
             genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
             plt.xticks([0, 1, 2], genotype)
             plt.xlabel('Genotype')
-            plt.ylabel('Expression for transcript '+row['Transcript'])
+            plt.ylabel('Expression for transcript '+row['Transcript']+'/'+row['Gene'])
             genotype_counts = str(row['Num homref'])+'/'+str(row['Num het'])+'/'+str(row['Num homalt'])
             pval = row['gene_expr_correlations_pval']
             plt.title('Genotype vs. gene_expression pvalue '+ str(pval)+' '+genotype_counts)
@@ -814,7 +812,7 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
             genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
             plt.xticks([0, 1, 2], genotype)
             plt.xlabel('Genotype')
-            plt.ylabel('Expression for transcript '+row['Transcript'])
+            plt.ylabel('Expression for transcript '+row['Transcript']+'/'+row['Gene'])
             genotype_counts = str(row['Num homref'])+'/'+str(row['Num het'])+'/'+str(row['Num homalt'])
             pval = row['gene_expr_correlations_pval']
             plt.title('Genotype vs. gene_expression pvalue '+ str(pval)+' '+genotype_counts)
@@ -833,7 +831,7 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
             genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
             plt.xticks([0, 1, 2], genotype)
             plt.xlabel('Genotype')
-            plt.ylabel('H3K27ac coverage for promoter '+row['Transcript'])
+            plt.ylabel('H3K27ac coverage for promoter '+row['Transcript']+'/'+row['Gene'])
             pval = row['genotype_act_corr_pval']
             plt.title('Genotype vs. h3k27ac pvalue '+ str(pval)+' '+genotype_counts)
 
