@@ -7,7 +7,6 @@ In directory *data* are located example files, which can be used while running s
 
 Having GATK and Annovar programs is necessary to run scripts. These programs were used in the following versions: GATK version 4.4.0.0, Annovar version: Date: 2020-06-07.
 
-
 Directory *output* contains example results. The example results were obtained by running code with following inputs and default parameters:
 - input_vcf = Symfonia_all.hard_filtered.selected.vcf.gz,
 - promoter_regions = brain_promoters_active.bed
@@ -22,6 +21,7 @@ Example program execution can look like that:
 /bin/python3 {base_path}/src/main.py --freq_filter_cutoff 0.01 --population ALL NFE --reference_population ALL --input_vcf {input_vcf} --enhancer_activity {enhacer_activity} --promoter_activity {promoter_activity} --gene_expression {gene_expression}
 ```
 where names in brackets stand for paths to corresponding files.
+Computing time for vcf file Symfonia_all.hard_filtered.selected.vcf.gz takes around 6 minutes.
 
 
 The successive steps in the analysis are as follows:
