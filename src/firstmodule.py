@@ -603,13 +603,8 @@ def import_vcf_sample_level(INPUT_VCF, OUTPUT, GATK, promoter_snps, enhancer_snp
         df['Num het'] = (df[var_columns] == 1).sum(axis=1)
         df['Num homalt'] = (df[var_columns] == 2).sum(axis=1)
 
-        #each genotype group should either be empty or have at least 2 samples
-        df = df[((df['Num homref'] == 0) | (df['Num homref'] >= 2)) &
-                ((df['Num het'] == 0) | (df['Num het'] >= 2)) &
-                ((df['Num homalt'] == 0) | (df['Num homalt'] >= 2))]
-
         #at least two genotype groups should be represented
-        df = df[(df[['Num homref', 'Num het', 'Num homalt']] == 0).sum(axis=1) < 2].copy()
+        df = df[(df[['Num homref', 'Num het', 'Num homalt']] < 2).sum(axis=1) < 2].copy()
         dataframes[name] = df
 
     enhancer_snps, promoter_snps = dataframes['enhancer_snps'], dataframes['promoter_snps']
@@ -626,7 +621,7 @@ def calculate_correlation_genotype_gene(row, counts):
     transcript = row["Transcript"]
 
     if transcript == '.':
-        return '.'
+        return pd.Series(['.', '.'])
     transcript_counts = counts[counts['Transcript'] == row['Transcript']+'_'+row['Gene']]
 
     expression_vector = transcript_counts[samples].values[0]
@@ -636,8 +631,8 @@ def calculate_correlation_genotype_gene(row, counts):
     if np.std(expression_vector) > 0.05: 
         rho, pval = spearmanr(genotype_vector, expression_vector)
         if str(rho) != 'nan':
-            return round(pval,3)
-    return '.'
+            return pd.Series([round(pval,3), rho>0])
+    return pd.Series(['.', '.'])
 
 # get transcripts series for each gene
 def get_gene_transcript(row, counts):
@@ -659,8 +654,8 @@ def check_gene_genotype_correlation(GENE_EXPRESSION, promoter_snps, enhancer_snp
     counts['Gene'] = counts['Transcript'].apply(lambda x: x.split('_')[1])
     
     #calculate correlation between genotype and gene expression
-    enhancer_snps['gene_expr_correlations_pval'] = enhancer_snps.apply(calculate_correlation_genotype_gene, args=(counts,), axis=1)
-    promoter_snps['gene_expr_correlations_pval'] = promoter_snps.apply(calculate_correlation_genotype_gene, args=(counts,), axis=1)
+    enhancer_snps[['gene_expr_correlations_pval','gene_expr_correlations_sign']] = enhancer_snps.apply(calculate_correlation_genotype_gene, args=(counts,), axis=1)
+    promoter_snps[['gene_expr_correlations_pval','gene_expr_correlations_sign']] = promoter_snps.apply(calculate_correlation_genotype_gene, args=(counts,), axis=1)
 
     #drop rows with no significant correlation
     enhancer_snps = enhancer_snps[enhancer_snps['gene_expr_correlations_pval'] != '.'].copy()
@@ -679,13 +674,13 @@ def calculate_correlation_genotype_signal(row,samples_act):
     genotype_vector = [float(x) for x in genotype_vector]
 
     if len([i for i in [0,1,2] if genotype_vector.count(i)>1])<2:
-        return '.'
+        return pd.Series(['.', '.'])
         
     if np.std(enh_act_vector) > 0.05 and np.std(genotype_vector) > 0.05:
         rho, pval = spearmanr(genotype_vector, enh_act_vector)
-        return round(pval,3)
+        return pd.Series([round(pval,3), rho>0])
     else:
-        return '.'
+        return pd.Series(['.', '.'])
         
 
 def check_genotype_signal_correlation(enhancer_snps, promoter_snps, ENHANCER_ACTIVITY, PROMOTER_ACTIVITY):
@@ -701,7 +696,7 @@ def check_genotype_signal_correlation(enhancer_snps, promoter_snps, ENHANCER_ACT
     merged = pd.merge(enhancer_snps, h3k27ac_enh, on=["CHROM", "enh_start", "enh_end"], how="left")
     merged = merged[['CHROM','enh_start','enh_end','POS']+samples_act+samples_var]
     merged.set_index(enhancer_snps.index, inplace=True)
-    enhancer_snps['genotype_enh_corr_pval'] = merged.apply(calculate_correlation_genotype_signal, args=(samples_act,), axis=1)
+    enhancer_snps[['genotype_act_corr_pval','genotype_act_corr_sign']] = merged.apply(calculate_correlation_genotype_signal, args=(samples_act,), axis=1)
     print('Done: calculating correlation between genotype and enhancer activity')
 
     # Calculations for promoters
@@ -712,12 +707,12 @@ def check_genotype_signal_correlation(enhancer_snps, promoter_snps, ENHANCER_ACT
     merged = pd.merge(promoter_snps, h3k27ac_prom, on=["Transcript"], how="left")
     merged = merged[['CHROM','POS']+samples_act+samples_var]
     merged.set_index(promoter_snps.index, inplace=True)
-    promoter_snps['genotype_prom_corr_pval'] = merged.apply(calculate_correlation_genotype_signal, args=(samples_act,), axis=1)
+    promoter_snps[['genotype_act_corr_pval','genotype_act_corr_sign']]= merged.apply(calculate_correlation_genotype_signal, args=(samples_act,), axis=1)
     promoter_snps.to_csv('output/sth_to_check.csv')
 
     #drop rows with no correlation
-    enhancer_snps = enhancer_snps[enhancer_snps['genotype_enh_corr_pval'] != '.'].copy()
-    promoter_snps = promoter_snps[promoter_snps['genotype_prom_corr_pval'] != '.'].copy()
+    enhancer_snps = enhancer_snps[enhancer_snps['genotype_act_corr_pval'] != '.'].copy()
+    promoter_snps = promoter_snps[promoter_snps['genotype_act_corr_pval'] != '.'].copy()
     enhancer_snps.to_csv('output/enhancer_snps_corrected_values.csv', sep='\t')
     promoter_snps.to_csv('output/promoter_snps_corrected_values.csv', sep='\t')
 
@@ -727,10 +722,16 @@ def check_genotype_signal_correlation(enhancer_snps, promoter_snps, ENHANCER_ACT
 
 
 def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHANCER_ACTIVITY,PROMOTER_ACTIVITY,threshold = 0.15):
+    # select significant results
     promoter_snps = promoter_snps[promoter_snps['gene_expr_correlations_pval'].astype(float) < threshold]
     enhancer_snps = enhancer_snps[enhancer_snps['gene_expr_correlations_pval'].astype(float) < threshold]
-    enhancer_snps = enhancer_snps[enhancer_snps['genotype_enh_corr_pval'].astype(float) < threshold]
-    promoter_snps = promoter_snps[promoter_snps['genotype_prom_corr_pval'].astype(float) < threshold]
+    enhancer_snps = enhancer_snps[enhancer_snps['genotype_act_corr_pval'].astype(float) < threshold]
+    promoter_snps = promoter_snps[promoter_snps['genotype_act_corr_pval'].astype(float) < threshold]
+
+    # select results where sign of correlation is the same for gene expression and enhancer activity
+    enhancer_snps = enhancer_snps[enhancer_snps['genotype_act_corr_sign'] == enhancer_snps['gene_expr_correlations_sign']]
+    promoter_snps = promoter_snps[promoter_snps['genotype_act_corr_sign'] == promoter_snps['gene_expr_correlations_sign']]
+
     promoter_snps = promoter_snps.sort_values(by = 'gene_expr_correlations_pval')
     enhancer_snps = enhancer_snps.sort_values(by = 'gene_expr_correlations_pval')
     counts = pd.read_csv(GENE_EXPRESSION, sep='\t')
@@ -788,7 +789,7 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
             plt.xticks([0, 1, 2], genotype)
             plt.xlabel('Genotype')
             plt.ylabel('H3K27ac coverage for enhancer '+row['CHROM']+':'+str(row['enh_start'])+'-'+str(row['enh_end']))
-            pval = row['genotype_enh_corr_pval']
+            pval = row['genotype_act_corr_pval']
             plt.title('Genotype vs. enhancer activity pvalue '+ str(pval)+' '+genotype_counts)
 
             fig.suptitle('SNP in enhancer '+row['CHROM']+':'+str(row['POS'])+row['REF']+'>'+row['ALT'])
@@ -833,7 +834,7 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
             plt.xticks([0, 1, 2], genotype)
             plt.xlabel('Genotype')
             plt.ylabel('H3K27ac coverage for promoter '+row['Transcript'])
-            pval = row['genotype_prom_corr_pval']
+            pval = row['genotype_act_corr_pval']
             plt.title('Genotype vs. h3k27ac pvalue '+ str(pval)+' '+genotype_counts)
 
             fig.suptitle('SNP in promoter  '+row['CHROM']+':'+str(row['POS'])+row['REF']+'>'+row['ALT'])
@@ -852,12 +853,12 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
     promoter_snps = promoter_snps.drop_duplicates()
 
     #format columns
-    enhancer_snps = enhancer_snps.rename(columns = {'genotype_enh_corr_pval' : 'p-value_for_correlation_genotype_vs_h3k27ac',
+    enhancer_snps = enhancer_snps.rename(columns = {'genotype_act_corr_pval' : 'p-value_for_correlation_genotype_vs_h3k27ac',
                                                     'gene_expr_correlations_pval':'p-value_for_correlation_genotype_vs_expression',
                                                     'H3K27ac-expression correlation p-values':'p-value_for_correlation_expression_vs_h3k27ac',
                                                     'Gene':'Gene_name'})
     
-    promoter_snps = promoter_snps.rename(columns = {'genotype_prom_corr_pval' : 'p-value_for_correlation_genotype_vs_h3k27ac',
+    promoter_snps = promoter_snps.rename(columns = {'genotype_act_corr_pval' : 'p-value_for_correlation_genotype_vs_h3k27ac',
                                                     'gene_expr_correlations':'p-value_for_correlation_genotype_vs_expression',
                                                     'Gene':'Gene_name'})
 

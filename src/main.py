@@ -4,6 +4,8 @@ import firstmodule as fm
 import pandas as pd
 import sys
 from itertools import compress
+import time
+start_time = time.ctime()
 
 base_path = os.path.dirname(os.path.abspath(__file__)).replace('/src', '')
 programs_path = '/home/julia/Desktop/uni/projekt_warianty/programs'
@@ -39,10 +41,10 @@ parser.add_argument("--chromatin_contacts", type=str, nargs='?', default= data_p
 parser.add_argument("--chromatin_loops", type=str, nargs='?', default= data_path + '/GSE63525_NHEK_HiCCUPS_looplist.txt.gz',help="Path to directory containing file with chromatin loops. It should have tab as separator.")
 parser.add_argument("--genes_info", type=str, nargs='?', default= data_path + '/hg38_full.transcripts.protein_coding.gtf', \
                     help="Path to directory containing file with information about genes.")
-parser.add_argument("--default_enhancers_genes_assignment",  type=str, nargs='?',default='output/assigned_genes_to_enhancers.csv', \
+parser.add_argument("--default_enhancers_genes_assignment",  type=str, nargs='?', \
                     help="You can provide path to already assigned genes to enhancers. It should have columns: enh_start, enh_end, Gene, genomic element, H3K27ac-expression correlation p-values, relation.\
                         If you won't provide path, genes will be assigned to enhancers during analysis.")
-# 
+# default='output/assigned_genes_to_enhancers.csv',
 
 parser.add_argument("--freq_filter_target", type=str, choices=['r', 'c'], default='r', nargs='?', \
                     help="Choose 'r' (rare) or 'c' (common). It expresses if you want to select rare or common variants considering frequency in population")
@@ -138,12 +140,6 @@ enriched_promoter_snps_df, enriched_enhancer_snps_df = fm.select_enriched_snps(f
 #assigning genes to promoters and enhancers
 enriched_promoter_snps_gene = fm.assign_genes_to_promoter_snps(enriched_promoter_snps_df, PROMOTER_REGIONS)
 
-enriched_enhancer_snps_df.to_csv(OUTPUT + '/middle1_result_enriched_enhancer_snps.csv')
-enriched_promoter_snps_gene.to_csv(OUTPUT + '/middle1_result_enriched_promoter_snps.csv')
-
-enriched_enhancer_snps_df = pd.read_csv(OUTPUT + '/middle1_result_enriched_enhancer_snps.csv')
-enriched_promoter_snps_gene = pd.read_csv(OUTPUT + '/middle1_result_enriched_promoter_snps.csv')
-   
 
 enriched_enhancer_snps_gene = fm.assign_genes_intronic_enhancer_snps(enriched_enhancer_snps_df, ENHANCER_REGIONS, genes_info_prepared)
 enriched_promoter_snps_gene = fm.change_table_format_promoter(enriched_promoter_snps_gene, genes_info_prepared)
@@ -187,15 +183,6 @@ if DEFAULT_ENHANCERS_GENES_ASSIGNMENT_is_available==0: # czy skorzystać w tym k
 else:
     assigned_genes_to_enhaners = pd.read_csv(DEFAULT_ENHANCERS_GENES_ASSIGNMENT)
 
-#saved intermediate results to testing
-enriched_enhancer_snps_gene.to_csv(OUTPUT + '/middle2_result_enriched_enhancer_snps.csv')
-enriched_promoter_snps_gene.to_csv(OUTPUT + '/middle2_result_enriched_promoter_snps.csv')
-
-DEFAULT_ENHANCERS_GENES_ASSIGNMENT = OUTPUT + '/assigned_genes_to_enhancers.csv'
-assigned_genes_to_enhancers = pd.read_csv(DEFAULT_ENHANCERS_GENES_ASSIGNMENT)
-enriched_enhancer_snps_gene = pd.read_csv(OUTPUT + '/middle2_result_enriched_enhancer_snps.csv')
-enriched_promoter_snps_gene = pd.read_csv(OUTPUT + '/middle2_result_enriched_promoter_snps.csv')
-    
 
 #enriched_enhancer_snps_df join with assigned_genes_to_enhancers
 enriched_enhancer_snps = enriched_enhancer_snps_gene.drop(columns=['Transcript'])
@@ -213,4 +200,5 @@ fm.remove_unnecessary_files(OUTPUT)
 
 #save and visualize results
 fm.visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHANCER_ACTIVITY, PROMOTER_ACTIVITY)
+print('Time of analysis: ', time.ctime(), start_time)
 
