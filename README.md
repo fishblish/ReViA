@@ -21,7 +21,7 @@ Example program execution can look like that:
 ```
 /bin/python3 {base_path}/src/main.py --freq_filter_cutoff 0.01 --population ALL NFE --reference_population ALL --input_vcf {input_vcf} --enhancer_activity {enhacer_activity} --promoter_activity {promoter_activity} --gene_expression {gene_expression}
 ```
-, where names in brackets stand for paths to corresponding files.
+where names in brackets stand for paths to corresponding files.
 
 
 The successive steps in the analysis are as follows:
