@@ -18,7 +18,9 @@ Directory *output* contains example results. The example results were obtained b
 - genes_info = hg38_full.genes.gtf
 
 Example program execution can look like that: 
+```
 /bin/python3 {base_path}/src/main.py --freq_filter_cutoff 0.01 --population ALL NFE --reference_population ALL --input_vcf {input_vcf} --enhancer_activity {enhacer_activity} --promoter_activity {promoter_activity} --gene_expression {gene_expression}
+```
 , where names in brackets stand for paths to corresponding files.
 
 
