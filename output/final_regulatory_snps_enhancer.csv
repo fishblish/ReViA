@@ -1,6 +1,5 @@
-,CHROM,POS,REF,ALT,AC,AF,AN,Num homref,Num het,Num homalt,gnomAD_genome_ALL,binom_pval,corrected_binom_pval,genomic element,Gene_name,Gene_ID,Transcript,relation,p-value_for_correlation_expression_vs_h3k27ac,p-value_for_correlation_genotype_vs_expression,p-value_for_correlation_genotype_vs_h3k27ac
-0,chr9,112165680,G,C,4,0.08,50,21,4,0,0.0011,0.0,0.0,enhancer intronic,SUSD1,ENSG00000106868,ENST00000355396,containing;closest,0.004,0.006,0.02
-1,chr15,74136556,C,G,2,0.04,50,23,2,0,0.0005,0.0003,0.0096,enhancer intronic,ISLR2,ENSG00000167178,ENST00000361742,containing,0.022,0.042,0.02
-2,chr15,74136556,C,G,2,0.04,50,23,2,0,0.0005,0.0003,0.0096,enhancer intronic,ISLR2,ENSG00000167178,ENST00000565540,closest,0.101,0.054,0.02
-3,chr2,96875381,C,T,2,0.04,50,23,2,0,0.0005,0.0003,0.0096,enhancer intronic,FAM178B,ENSG00000168754,ENST00000393526,containing,0.1,0.121,0.08
-4,chr7,151200371,G,C,2,0.04,50,23,2,0,0.0002,0.0,0.0024,enhancer intronic,IQCA1L,ENSG00000278685,ENST00000615129,containing;closest,0.004,0.144,0.053
+,CHROM,POS,REF,ALT,AC,AF,AN,Num homref,Num het,Num homalt,gnomAD_genome_ALL,binom_pval,corrected_binom_pval,genomic element,Gene_name,Gene_ID,Transcript,relation,p-value_for_correlation_expression_vs_h3k27ac,p-value_for_correlation_genotype_vs_expression,p-value_for_correlation_genotype_vs_h3k27ac,motif_best_match,motif_highest_diff
+0,chr9,112165680,G,C,4,0.08,50,21,4,0,0.0011,0.0,0.0,enhancer intronic,SUSD1,ENSG00000106868,ENST00000355396,containing;closest,0.004,0.006,0.02,PITX2_HUMAN.H11MO.0.D:0.99,PITX2_HUMAN.H11MO.0.D:4.23
+1,chr15,74136556,C,G,2,0.04,50,23,2,0,0.0005,0.0003,0.0096,enhancer intronic,ISLR2,ENSG00000167178,ENST00000361742,containing,0.022,0.042,0.02,ZN740_HUMAN.H11MO.0.D:0.99,ZN281_HUMAN.H11MO.0.A:5.34
+2,chr15,74136556,C,G,2,0.04,50,23,2,0,0.0005,0.0003,0.0096,enhancer intronic,ISLR2,ENSG00000167178,ENST00000565540,closest,0.101,0.054,0.02,ZN740_HUMAN.H11MO.0.D:0.99,ZN281_HUMAN.H11MO.0.A:5.34
+3,chr2,96875381,C,T,2,0.04,50,23,2,0,0.0005,0.0003,0.0096,enhancer intronic,FAM178B,ENSG00000168754,ENST00000393526,containing,0.1,0.121,0.08,FLI1_HUMAN.H11MO.1.A:0.96,ETS1_HUMAN.H11MO.0.A:7.59
