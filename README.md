@@ -6,6 +6,7 @@ All key functions are located in directory *src* in the file *firstmodule.py*, a
 In directory *data* are located example files, which can be used while running scripts. This directory does not contain .vcf file with variants *Symfonia_all.hard_filtered.selected.vcf.gz*, which was used to obtain results presented in *output* directory.
 
 Having GATK and Annovar programs is necessary to run scripts. These programs were used in the following versions: GATK version 4.4.0.0, Annovar version: Date: 2020-06-07.
+To use motif search it is also obligatory to have installed following R packages: motifbreakR (2.12.3), BSgenome.Hsapiens.UCSC.hg38 (1.4.5), MotifDb (1.40.0).
 
 Directory *output* contains example results. The example results were obtained by running code with following inputs and default parameters:
 - input_vcf = Symfonia_all.hard_filtered.selected.vcf.gz,
