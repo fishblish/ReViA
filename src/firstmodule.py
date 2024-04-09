@@ -44,6 +44,16 @@ def check_input_files(files_to_check_list , DEFAULT_ENHANCERS_GENES_ASSIGNMENT):
     if DEFAULT_ENHANCERS_GENES_ASSIGNMENT:
         assert os.path.isfile(DEFAULT_ENHANCERS_GENES_ASSIGNMENT), f'File {DEFAULT_ENHANCERS_GENES_ASSIGNMENT} does not exist.'
 
+def check_R_packages(R_PACKAGES_PATH):
+    result = [1, 1, 1]
+    if 'motifbreakR' in os.listdir(R_PACKAGES_PATH):
+        result[0] = 0
+    if 'BSgenome.Hsapiens.UCSC.hg38' in os.listdir(R_PACKAGES_PATH):
+        result[1] = 0
+    if 'MotifDb' in os.listdir(R_PACKAGES_PATH):
+        result[2] = 0
+    return result
+
 def index_input_vcf(INPUT_VCF, GATK):
     vcf_path = '/'.join(INPUT_VCF.split('/')[0:-1])
     vcf_file_name = INPUT_VCF.split('/')[-1]
@@ -273,6 +283,151 @@ def select_enriched_snps(filtered_variants_files_dict, GATK, reference_populatio
     print(len(rare_enriched_enhancer_snps), "SNPs in enhancers are enriched in analyzed cohort.")
     return rare_enriched_promoter_snps, rare_enriched_enhancer_snps
 
+# MOTIFS
+
+def snps_to_bed_file(rare_enriched_promoter_snps, rare_enriched_enhancer_snps, OUTPUT):
+    snps_bed_files = []
+    for snps_df, r in [(rare_enriched_promoter_snps, "promoter"), (rare_enriched_enhancer_snps, "enhancer")]:
+        snps_bed = pd.DataFrame()
+        snps_bed["chromosome"] = snps_df["CHROM"]
+        snps_bed["start"] = snps_df["POS"] - 1
+        snps_bed["end"] = snps_df["POS"]
+        snps_bed["name"] = snps_df["CHROM"] + ":" + snps_df["POS"].astype(str) + ":" + snps_df["REF"] + ":" + snps_df[
+            "ALT"]
+        snps_bed["score"] = 0
+        snps_bed["strand"] = "+"
+        output_bed_path = "%s/%s_rare_enriched_SNPs_interediate_result.bed" % (OUTPUT, r)
+        snps_bed.to_csv(output_bed_path, sep="\t", index=False, header=False)
+        snps_bed_files.append(output_bed_path)
+    return snps_bed_files
+
+def prepare_motifs_object(path_to_r_packages):
+    import rpy2.robjects as robjects
+    from rpy2.rinterface_lib.callbacks import logger as rpy2_logger
+    import logging
+    rpy2_logger.setLevel(logging.ERROR)
+
+    robjects.r('''
+        # Load R packages from the specified location
+        library('motifbreakR', lib.loc="''' + path_to_r_packages + '''")
+        library('BSgenome.Hsapiens.UCSC.hg38', lib.loc="''' + path_to_r_packages + '''")
+        library('MotifDb', lib.loc="''' + path_to_r_packages + '''")
+        print(sessionInfo())
+        motifs <- query(MotifDb, andStrings=c("hocomocov11", "hsapiens"))
+    ''')
+
+
+def score_motifs(snps_bed_files, path_to_r_packages):
+    import rpy2.robjects as robjects
+    from rpy2.rinterface_lib.callbacks import logger as rpy2_logger
+    import logging
+    rpy2_logger.setLevel(logging.ERROR)
+
+    robjects.r('''
+        library('motifbreakR', lib.loc="''' + path_to_r_packages + '''")
+        library('BSgenome.Hsapiens.UCSC.hg38', lib.loc="''' + path_to_r_packages + '''")
+        library('MotifDb', lib.loc="''' + path_to_r_packages + '''")
+        
+        score_snps <- function(snps_file, out_file) {
+            #read SNPs from input bed file
+            snps.mb.frombed <- snps.from.file(file = snps_file, search.genome = BSgenome.Hsapiens.UCSC.hg38, format = "bed")
+        
+            #calculate scores
+            results_log <- motifbreakR(snpList = snps.mb.frombed, filterp = TRUE,
+                                   pwmList = motifs,
+                                   threshold = 1e-5,
+                                   method = "log",
+                                   bkg = c(A=0.25, C=0.25, G=0.25, T=0.25),
+                                   BPPARAM = BiocParallel::bpparam())
+        
+            #reformat results to dataframe and save to file
+            results_log_df <- data.frame(results_log)
+            results_log_df <- apply(results_log_df,2,as.character)
+            write.table(results_log_df, out_file, quote=F, sep="\t", row.names=F)
+        } 
+    ''')
+
+    score_snps_py = robjects.globalenv['score_snps']
+    for snp_bed in snps_bed_files:
+        snp_scores_csv = snp_bed.replace(".bed", "_motifbreakR-scores.csv")
+        print(f"Calculating scores for {'promoters' if 'promoter' in snp_bed else 'enhancers'}.")
+        snp_scores = score_snps_py(snp_bed, snp_scores_csv)
+    return snp_scores
+
+
+def find_best_matching_motif(group):
+    # find motif with highest pct score (either for REF or ALT)
+    pctBest = "pctRef" if max(group["pctRef"])>max(group["pctAlt"]) else "pctAlt"
+    best_pct_score_motif = group[group[pctBest] == max(group[pctBest])]["providerId"].values[0]
+
+    # find motif with highest abs(diff) between alleles
+    best_alleleDiff = max(group["alleleDiff"].abs())
+    best_alleleDiff_motif = group[group["alleleDiff"].abs() == best_alleleDiff]["providerId"].values[0]
+
+    return f'{best_pct_score_motif}:{round(max(group[pctBest]),2)}', f'{best_alleleDiff_motif}:{round(best_alleleDiff,2)}'
+
+
+def select_motif_results(OUTPUT, rare_enriched_promoter_snps, rare_enriched_enhancer_snps, snps_bed_files):
+    promoter_SNPs_motifbreakr = pd.read_csv(snps_bed_files[0].replace(".bed", "_motifbreakR-scores.csv"), sep="\t")
+    enhancer_SNPs_motifbreakr = pd.read_csv(snps_bed_files[1].replace(".bed", "_motifbreakR-scores.csv"), sep="\t")
+
+    # select records with "strong" effect
+    promoter_SNPs_motifbreakr_strong = promoter_SNPs_motifbreakr[promoter_SNPs_motifbreakr["effect"] == "strong"].copy()
+    enhancer_SNPs_motifbreakr_strong = enhancer_SNPs_motifbreakr[enhancer_SNPs_motifbreakr["effect"] == "strong"].copy()
+    
+    # add columns with info about best matches: motif with highest pct score and alleleDiff
+    # information about best motifs for each SNP will be stored in a dict in which SNP_ids will be keys
+    best_motifs_dict = {}
+
+    for df in [enhancer_SNPs_motifbreakr_strong, promoter_SNPs_motifbreakr_strong]:
+        for snp_id, snp_records in df.groupby("SNP_id"):
+            best_match, highest_diff = find_best_matching_motif(snp_records)
+            best_motifs_dict[snp_id] = {"best_match": best_match, "highest_diff": highest_diff}
+
+    # extract information from the dict to fill appropriate columns in enhancer and promoter SNPs dataframes
+    enhancer_SNPs_motifbreakr_strong.loc[:, "motif_best_match"] = enhancer_SNPs_motifbreakr_strong.loc[:,"SNP_id"].apply(
+                                                                    lambda x: best_motifs_dict[x]["best_match"])
+    enhancer_SNPs_motifbreakr_strong.loc[:, "motif_highest_diff"] = enhancer_SNPs_motifbreakr_strong.loc[:,"SNP_id"].apply(
+                                                                    lambda x: best_motifs_dict[x]["highest_diff"])
+
+    promoter_SNPs_motifbreakr_strong.loc[:, "motif_best_match"] = promoter_SNPs_motifbreakr_strong.loc[:,"SNP_id"].apply(
+                                                                    lambda x: best_motifs_dict[x]["best_match"])
+    promoter_SNPs_motifbreakr_strong.loc[:, "motif_highest_diff"] = promoter_SNPs_motifbreakr_strong.loc[:,"SNP_id"].apply(
+                                                                    lambda x: best_motifs_dict[x]["highest_diff"])
+
+    # extract information about SNP location and best motifs, drop duplicates
+    promoter_SNPs_motifbreakr_strong_snps_only = promoter_SNPs_motifbreakr_strong[
+        ["seqnames", "start", "REF", "ALT", "motif_best_match", "motif_highest_diff"]].drop_duplicates()
+    enhancer_SNPs_motifbreakr_strong_snps_only = enhancer_SNPs_motifbreakr_strong[
+        ["seqnames", "start", "REF", "ALT", "motif_best_match", "motif_highest_diff"]].drop_duplicates()
+
+    # change column names to keep the convention
+    promoter_SNPs_motifbreakr_strong_snps_only = promoter_SNPs_motifbreakr_strong_snps_only.rename(
+        columns={"seqnames": "CHROM", "start": "POS"})
+    enhancer_SNPs_motifbreakr_strong_snps_only = enhancer_SNPs_motifbreakr_strong_snps_only.rename(
+        columns={"seqnames": "CHROM", "start": "POS"})
+
+    print(len(promoter_SNPs_motifbreakr_strong_snps_only), "and", len(enhancer_SNPs_motifbreakr_strong_snps_only),
+          f"SNPs in promoters and enhancers have predicted strong effect of motif binding (out of {len(rare_enriched_promoter_snps)} \
+          and {len(rare_enriched_enhancer_snps)}, respectively).")
+
+    rare_enriched_promoter_snps_motif = pd.merge(rare_enriched_promoter_snps,
+                                                 promoter_SNPs_motifbreakr_strong_snps_only, how="right",
+                                                 on=["CHROM", "POS", "REF", "ALT"])
+    rare_enriched_enhancer_snps_motif = pd.merge(rare_enriched_enhancer_snps,
+                                                 enhancer_SNPs_motifbreakr_strong_snps_only, how="right",
+                                                 on=["CHROM", "POS", "REF", "ALT"])
+    return rare_enriched_promoter_snps_motif, rare_enriched_enhancer_snps_motif
+
+
+
+def find_motifs(rare_enriched_promoter_snps, rare_enriched_enhancer_snps, OUTPUT, R_PACKAGES_PATH):
+    snps_bed_files = snps_to_bed_file(rare_enriched_promoter_snps, rare_enriched_enhancer_snps, OUTPUT)
+    prepare_motifs_object(R_PACKAGES_PATH)
+    score_motifs(snps_bed_files,R_PACKAGES_PATH)
+    rare_enriched_promoter_snps_motif, rare_enriched_enhancer_snps_motif = select_motif_results(OUTPUT, rare_enriched_promoter_snps, rare_enriched_enhancer_snps, snps_bed_files)
+
+    return rare_enriched_promoter_snps_motif, rare_enriched_enhancer_snps_motif
 
 
 def assign_genes_to_promoter_snps(rare_enriched_promoter_snps, PROMOTER_REGIONS):
@@ -361,6 +516,10 @@ def assign_genes_intronic_enhancer_snps(rare_enriched_enhancer_snps_df, ENHANCER
     rare_enriched_enhancer_snps_gene = to_concat
     rare_enriched_enhancer_snps_gene["genomic element"] = rare_enriched_enhancer_snps_gene.Transcript.apply(
         lambda x: "enhancer intergenic" if x == "." else "enhancer intronic")
+    rare_enriched_enhancer_snps_gene = pd.merge(rare_enriched_enhancer_snps_df.drop(columns=["POS-1"]),
+                                                rare_enriched_enhancer_snps_gene[["CHROM", "POS","enh_start", "enh_end","Transcript","genomic element"]], 
+                                                on=["CHROM", "POS"], how='inner')
+
     return rare_enriched_enhancer_snps_gene
 
 
@@ -863,10 +1022,11 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
 
     # change columns order
     gnomad_cols = [col for col in enhancer_snps if 'gnomAD' in col]
-    cols_order_enh = ['CHROM','POS','REF','ALT','AC','AF','AN','Num homref','Num het','Num homalt']+gnomad_cols+['binom_pval','corrected_binom_pval','genomic element','Gene_name','Gene_ID','Transcript','relation']+ [col for col in enhancer_snps.columns if ('p-value' in col)]
+    motif_cols = ['motif_best_match','motif_highest_diff'] if 'motif_best_match' in enhancer_snps.columns else []
+    cols_order_enh = ['CHROM','POS','REF','ALT','AC','AF','AN','Num homref','Num het','Num homalt']+gnomad_cols+['binom_pval','corrected_binom_pval','genomic element','Gene_name','Gene_ID','Transcript','relation']+ [col for col in enhancer_snps.columns if ('p-value' in col)]+motif_cols
     enhancer_snps = enhancer_snps.reindex(columns=cols_order_enh)   
 
-    cols_order_prom = ['CHROM','POS','REF','ALT','AC','AF','AN','Num homref','Num het','Num homalt']+gnomad_cols+['binom_pval','corrected_binom_pval','genomic element','Gene_name','Gene_ID','Transcript','relation']+ [col for col in promoter_snps.columns if ('p-value' in col)]
+    cols_order_prom = ['CHROM','POS','REF','ALT','AC','AF','AN','Num homref','Num het','Num homalt']+gnomad_cols+['binom_pval','corrected_binom_pval','genomic element','Gene_name','Gene_ID','Transcript','relation']+ [col for col in promoter_snps.columns if ('p-value' in col)]+motif_cols
     promoter_snps = promoter_snps.reindex(columns=cols_order_prom)   
     promoter_snps['relation'] = 'containing'
     promoter_snps['p-value_for_correlation_expression_vs_h3k27ac'] = '.'
@@ -885,8 +1045,9 @@ def save_limited_results(promoter_snps, enhancer_snps, OUTPUT):
     # format columns
     gnomad_cols = [col for col in enhancer_snps if 'gnomAD' in col]
     pval_cols = [col for col in enhancer_snps if 'p-value' in col]
-    enhancer_snps = enhancer_snps[['CHROM','POS','REF','ALT','AC','AF','AN']+gnomad_cols+['binom_pval','corrected_binom_pval','genomic element','Transcript','Gene','Gene_ID','relation']+pval_cols]
-    promoter_snps = promoter_snps[['CHROM','POS','REF','ALT','AC','AF','AN']+gnomad_cols+['binom_pval','corrected_binom_pval','Gene','Gene_ID']]
+    motif_cols = ['motif_best_match','motif_highest_diff'] if 'motif_best_match' in enhancer_snps.columns else []
+    enhancer_snps = enhancer_snps[['CHROM','POS','REF','ALT','AC','AF','AN']+gnomad_cols+['binom_pval','corrected_binom_pval','genomic element','Transcript','Gene','Gene_ID','relation']+pval_cols+motif_cols]
+    promoter_snps = promoter_snps[['CHROM','POS','REF','ALT','AC','AF','AN']+gnomad_cols+['binom_pval','corrected_binom_pval','Gene','Gene_ID']+motif_cols]
     enhancer_snps = enhancer_snps.rename(columns = {'Gene':'Gene_name'})
     promoter_snps = promoter_snps.rename(columns = {'Gene':'Gene_name'})
 

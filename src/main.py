@@ -60,6 +60,8 @@ parser.add_argument("--bh_alpha", type=float, default=0.01, nargs='?', \
                     help="Set cut-off point for Benjamini-Hochberg correction.")
 parser.add_argument("-limited_analysis", action='store_true', help="If you have only input vcf file, you can use this flag to run analysis without enhancer activity, gene expression.")
 
+parser.add_argument("--motifs", action='store_false', help="If you want to search for motifs in enhancers and promoters.")
+parser.add_argument("--r_packages_path", type=str, nargs='?', default="/home/julia/miniconda3/lib/R/library/", help="Path to directory containing R packages: motifbreakR, BSgenome.Hsapiens.UCSC.hg38, MotifDb. Providing this path is necessary to search for motifs.")
 
 args = parser.parse_args()
 
@@ -84,6 +86,8 @@ freq_filter_missing = args.freq_filter_missing
 reference_population = args.reference_population
 bh_alpha = args.bh_alpha
 limited_analysis = args.limited_analysis
+motifs = args.motifs
+R_PACKAGES_PATH = args.r_packages_path
 
 if reference_population != 'ALL':
     assert reference_population in population, "Reference population must be in population list"
@@ -116,6 +120,12 @@ flags = fm.check_programs(GATK, ANNOVAR)
 if flags!= [0,0]:
     raise TypeError('You should provide correct path to program(s)', list(compress(['GATK', 'ANNOVAR'], flags)))
 
+#check if R packages are installed
+if motifs:
+    flags = fm.check_R_packages(R_PACKAGES_PATH)
+    if flags!= [0,0,0]:
+        raise TypeError('You should provide correct path to R packages:', list(compress(['motifbreakR', 'BSgenome.Hsapiens.UCSC.hg38', 'MotifDb'], flags)))
+
 if fm.prepare_annovar_database(ANNOVAR)==0:
     raise TypeError(f'ANNOVAR database cound not be installed. You can install it manually from annovar website. It should be placed in {ANNOVAR}/humandb directory and unpacked.')
 
@@ -136,6 +146,16 @@ filtered_by_freq_variants_file = fm.select_snps_by_freq(annotated_variants_path,
 
 #select enriched snps
 enriched_promoter_snps_df, enriched_enhancer_snps_df = fm.select_enriched_snps(filtered_by_freq_variants_file, GATK, bh_alpha=bh_alpha, target=freq_filter_target, reference_population=reference_population)
+'''
+enriched_enhancer_snps_df.to_csv(OUTPUT + '/enriched_enhancer_snps.csv')
+enriched_promoter_snps_df.to_csv(OUTPUT + '/enriched_promoter_snps.csv')
+
+enriched_enhancer_snps_df = pd.read_csv(OUTPUT + '/enriched_enhancer_snps.csv')
+enriched_promoter_snps_df = pd.read_csv(OUTPUT + '/enriched_promoter_snps.csv')
+'''
+if motifs:
+    #select SNPs in motifs
+    enriched_promoter_snps_df, enriched_enhancer_snps_df = fm.find_motifs(enriched_promoter_snps_df, enriched_enhancer_snps_df, OUTPUT, R_PACKAGES_PATH)
 
 #assigning genes to promoters and enhancers
 enriched_promoter_snps_gene = fm.assign_genes_to_promoter_snps(enriched_promoter_snps_df, PROMOTER_REGIONS)
@@ -200,5 +220,5 @@ fm.remove_unnecessary_files(OUTPUT)
 
 #save and visualize results
 fm.visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHANCER_ACTIVITY, PROMOTER_ACTIVITY)
-print('Time of analysis: ', time.ctime(), start_time)
+print('Time of analysis: start - ',start_time,' end - ', time.ctime(), )
 
