@@ -21,12 +21,13 @@ Example program execution can look like that:
 /bin/python3 {base_path}/src/main.py --freq_filter_cutoff 0.01 --population ALL NFE --reference_population ALL --input_vcf {input_vcf} --enhancer_activity {enhacer_activity} --promoter_activity {promoter_activity} --gene_expression {gene_expression}
 ```
 where names in brackets stand for paths to corresponding files.
-Computing time for the VCF file 'Symfonia_all.hard_filtered.selected.vcf.gz' is approximately 6 minutes. This file consists of around 290,000 variants and 25 samples.
+Computing time for the VCF file 'Symfonia_all.hard_filtered.selected.vcf.gz' is approximately 27 minutes with motif search and 6 minutes without it.  This file consists of around 290,000 variants and 25 samples.
 
 The successive steps in the analysis are as follows:
 - Selection of variants that are located in regulatory regions and are biallelic.
 - Assignment of variant frequency in the population and filtering based on this value. This is done using ANNOVAR.
 - Performing a binomial test - selecting variants that are significantly more often (or rarely) present in the studied group than in the population. Benjamin-Hochberg correction is applied.
+- Selecting SNPs which are present inside motif and have atrong effect on it.
 - Assignment of transcripts to promoters and intronic enhancers.
 - Assignment of transcripts to enhancers: the closest ones and those in chromatin contact.
 - Determination of correlation between enhancer activity (h3k27ac signal) and gene expression.
