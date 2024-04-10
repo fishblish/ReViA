@@ -312,7 +312,6 @@ def prepare_motifs_object(path_to_r_packages):
         library('motifbreakR', lib.loc="''' + path_to_r_packages + '''")
         library('BSgenome.Hsapiens.UCSC.hg38', lib.loc="''' + path_to_r_packages + '''")
         library('MotifDb', lib.loc="''' + path_to_r_packages + '''")
-        print(sessionInfo())
         motifs <- query(MotifDb, andStrings=c("hocomocov11", "hsapiens"))
     ''')
 
@@ -582,10 +581,8 @@ def add_gene_name(gene_id, genes_info):
 def intersect_intervals(interval1, interval2):
     inter_start = max(interval1[0], interval2[0])
     inter_end = min(interval1[1], interval2[1])
-    if inter_start <= inter_end:
-        return [inter_start, inter_end]
-    else:
-        return False
+    return inter_start <= inter_end
+
     
 # assign contacting transcripts using chromatin loops list
 def assign_chromatin_contacting_gene_to_enhancer_with_loops(rare_enriched_enhancer_snps_gene_closest, TRANSCRIPTS_REGIONS, CHROMATIN_LOOPS):
@@ -600,48 +597,27 @@ def assign_chromatin_contacting_gene_to_enhancer_with_loops(rare_enriched_enhanc
     
     # find enhancers which are in contact with transcript
     # it means that there is loop which one anchor intersects with enhancer and second with transcript
-    snps_loops = rare_enriched_enhancer_snps_gene_closest.merge(looplist, left_on='CHROM', right_on='chr1', how='inner')
+
+    # merge with rows where at least one chromosome is the same
+    snps_loops1 = rare_enriched_enhancer_snps_gene_closest.merge(looplist, left_on='CHROM', right_on='chr1', how='inner')
+    snps_loops2 = rare_enriched_enhancer_snps_gene_closest.merge(looplist, left_on='CHROM', right_on='chr2', how='inner')
+    snps_loops = pd.concat([snps_loops1, snps_loops2], ignore_index=True).drop_duplicates()
     
-    snps_loops['intersection_with_x'] = snps_loops.apply(lambda x: intersect_intervals([x['enh_start'], x['enh_end']], [x['x1'], x['x2']]), axis=1)
-    snps_loops['intersection_with_y'] = snps_loops.apply(lambda x: intersect_intervals([x['enh_start'], x['enh_end']], [x['y1'], x['y2']]), axis=1)
+    # intersect enhancer with loop
+    snps_loops['intersection_with_x'] = snps_loops.apply(lambda x: (intersect_intervals([x['enh_start'], x['enh_end']], [x['x1'], x['x2']])) & (x['chr1']==x['CHROM']), axis=1)
+    snps_loops['intersection_with_y'] = snps_loops.apply(lambda x: (intersect_intervals([x['enh_start'], x['enh_end']], [x['y1'], x['y2']])) & (x['chr2']==x['CHROM']), axis=1)
     snps_loops = snps_loops[(snps_loops['intersection_with_x'] != False) | (snps_loops['intersection_with_y'] != False)]
 
+    # intersect transcript with loop
     snps_loops['second_anchor'] = snps_loops.apply(lambda x: 'y' if x['intersection_with_x'] != False else 'x', axis=1)
     snps_loops = snps_loops.merge(transcripts, left_on='CHROM', right_on='chr', how='inner')
-    snps_loops['intersection_with_transcript'] = snps_loops.apply(lambda x: intersect_intervals([x[f"{x['second_anchor']}1"], x[f"{x['second_anchor']}2"]], [x['start'], x['end']]), axis=1)
+    snps_loops['intersection_with_transcript'] = snps_loops.apply(lambda x: (intersect_intervals([x[f"{x['second_anchor']}1"], x[f"{x['second_anchor']}2"]], [x['start'], x['end']])) & (x['chr']==x['chr1' if x['second_anchor']=='x' else 'chr2']), axis=1)
     snps_loops = snps_loops[snps_loops['intersection_with_transcript'] != False]
     snps_loops = rare_enriched_enhancer_snps_gene_closest.merge(snps_loops[['CHROM', 'enh_start', 'enh_end', 'contacting transcript']], on=['CHROM', 'enh_start', 'enh_end'], how='left').fillna('.')
 
     rare_enriched_enhancer_snps_gene_closest_contacts = snps_loops[list(rare_enriched_enhancer_snps_gene_closest.columns) + ['contacting transcript']]
     return rare_enriched_enhancer_snps_gene_closest_contacts
 
-    
-
-# assign putative genes to enhancers based on chromatin contacts
-def assign_chromatin_contacting_gene_to_enhancer(rare_enriched_enhancer_snps_gene_closest,
-                                                              genes_info, CHROMATIN_CONTACTS):
-    rare_enriched_enhancer_snps_gene_closest.to_csv('snps_before_chromatin_contacts.csv')
-    # Read bed file with chromatin contacts, merge with SNPs table
-    contacts = pd.read_csv(CHROMATIN_CONTACTS, sep=' ')
-    contacts_to_genes = contacts[contacts["ENST"] != '-']
-    contacts_to_genes = contacts_to_genes.drop_duplicates(subset=["chr", "start", "end", "ENST"])
-    contacts_to_genes = contacts_to_genes.rename(columns={"chr": "CHROM",
-                                                          "start": "enh_start",
-                                                          "end": "enh_end",
-                                                          "ENST": "contacting transcript"})
-
-    rare_enriched_enhancer_snps_gene_closest_contacts = pd.merge(rare_enriched_enhancer_snps_gene_closest,
-                                                                       contacts_to_genes[
-                                                                           ["CHROM", "enh_start", "enh_end",
-                                                                            "contacting transcript"]],
-                                                                       on=["CHROM", "enh_start", "enh_end"],
-                                                                       how="left").fillna('.')
-
-    rare_enriched_enhancer_snps_gene_closest_contacts["contacting transcript"] = \
-    rare_enriched_enhancer_snps_gene_closest_contacts["contacting transcript"].apply(
-        lambda x: add_gene_name(x, genes_info))
-    rare_enriched_enhancer_snps_gene_closest_contacts[rare_enriched_enhancer_snps_gene_closest_contacts['contacting transcript']!= '.'].to_csv('snps_after_chromatin_contacts_old.csv')
-    return rare_enriched_enhancer_snps_gene_closest_contacts
 
 # collect putative genes in one column named 'Genes'
 def reformat_target_genes_enh(rare_enriched_enhancer_snps_gene_closest_contacts, genes_info):

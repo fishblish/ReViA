@@ -36,8 +36,6 @@ parser.add_argument("--promoter_activity", type=str, nargs='?', default= data_pa
 
 parser.add_argument("--gene_expression", type=str, nargs='?', default= data_path + "/transcrtpts_rnaseq_quantile_normalized.csv", \
                     help="Path to directory containing csv file with gene expression. It should have column 'Transcript' with data in form transcipt/gene name.")
-parser.add_argument("--chromatin_contacts", type=str, nargs='?', default= data_path + "/predicted_contacts.bed", \
-                    help="Path to directory containing bed file with chromatin contacts.")
 parser.add_argument("--chromatin_loops", type=str, nargs='?', default= data_path + '/GSE63525_NHEK_HiCCUPS_looplist.txt.gz',help="Path to directory containing file with chromatin loops. It should have tab as separator.")
 parser.add_argument("--genes_info", type=str, nargs='?', default= data_path + '/hg38_full.transcripts.protein_coding.gtf', \
                     help="Path to directory containing file with information about genes.")
@@ -75,7 +73,6 @@ OUTPUT = args.output
 ENHANCER_ACTIVITY = args.enhancer_activity
 PROMOTER_ACTIVITY = args.promoter_activity
 GENE_EXPRESSION = args.gene_expression
-CHROMATIN_CONTACTS = args.chromatin_contacts
 CHROMATIN_LOOPS = args.chromatin_loops
 GENES_INFO = args.genes_info
 DEFAULT_ENHANCERS_GENES_ASSIGNMENT = args.default_enhancers_genes_assignment
@@ -102,7 +99,7 @@ except:
     print('Directory ', OUTPUT, ' already exist. Output files will be saved in this localization.')
 
 #check if input files are in provided localizations
-fm.check_input_files([INPUT_VCF, PROMOTER_REGIONS, ENHANCER_REGIONS, ENHANCER_ACTIVITY, PROMOTER_ACTIVITY, GENE_EXPRESSION, CHROMATIN_CONTACTS, GENES_INFO], DEFAULT_ENHANCERS_GENES_ASSIGNMENT)    
+fm.check_input_files([INPUT_VCF, PROMOTER_REGIONS, ENHANCER_REGIONS, ENHANCER_ACTIVITY, PROMOTER_ACTIVITY, GENE_EXPRESSION, CHROMATIN_LOOPS, GENES_INFO], DEFAULT_ENHANCERS_GENES_ASSIGNMENT)    
 genes_info_prepared = fm.prepare_genes_info(GENES_INFO)
 
 DEFAULT_ENHANCERS_GENES_ASSIGNMENT_is_available = 0
