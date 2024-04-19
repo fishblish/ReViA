@@ -36,7 +36,7 @@ parser.add_argument("--promoter_activity", type=str, nargs='?', default= data_pa
 
 parser.add_argument("--gene_expression", type=str, nargs='?', default= data_path + "/transcrtpts_rnaseq_quantile_normalized.csv", \
                     help="Path to directory containing csv file with gene expression. It should have column 'Transcript' with data in form transcipt/gene name.")
-parser.add_argument("--chromatin_loops", type=str, nargs='?', default= data_path + '/GSE63525_NHEK_HiCCUPS_looplist.txt.gz',help="Path to directory containing file with chromatin loops. It should have tab as separator.")
+parser.add_argument("--chromatin_loops", type=str, nargs='?', default= data_path + '/loop_lists/GSE63525_NHEK_HiCCUPS_looplist.txt.gz',help="Path to directory containing file with chromatin loops. It should have tab as separator.")
 parser.add_argument("--genes_info", type=str, nargs='?', default= data_path + '/hg38_full.transcripts.protein_coding.gtf', \
                     help="Path to directory containing file with information about genes.")
 parser.add_argument("--default_enhancers_genes_assignment",  type=str, nargs='?', \
@@ -156,6 +156,7 @@ if motifs:
 
 #assigning genes to promoters and enhancers
 enriched_promoter_snps_gene = fm.assign_genes_to_promoter_snps(enriched_promoter_snps_df, PROMOTER_REGIONS)
+enriched_promoter_snps_gene = fm.assign_chromatin_contacting_gene_to_promoter_with_loops(enriched_promoter_snps_gene, TRANSCRIPTS_REGIONS, CHROMATIN_LOOPS)
 
 
 enriched_enhancer_snps_gene = fm.assign_genes_intronic_enhancer_snps(enriched_enhancer_snps_df, ENHANCER_REGIONS, genes_info_prepared)

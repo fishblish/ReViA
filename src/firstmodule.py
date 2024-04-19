@@ -355,15 +355,16 @@ def score_motifs(snps_bed_files, path_to_r_packages):
 
 
 def find_best_matching_motif(group):
-    # find motif with highest pct score (either for REF or ALT)
-    pctBest = "pctRef" if max(group["pctRef"])>max(group["pctAlt"]) else "pctAlt"
-    best_pct_score_motif = group[group[pctBest] == max(group[pctBest])]["providerId"].values[0]
+    # find motif with highest score (either for REF or ALT)
+    scoreBest = "scoreRef" if max(group["scoreRef"])>max(group["scoreAlt"]) else "scoreAlt"
+    best_score_motif = group[group[scoreBest] == max(group[scoreBest])]["providerId"].values[0]
 
     # find motif with highest abs(diff) between alleles
     best_alleleDiff = max(group["alleleDiff"].abs())
     best_alleleDiff_motif = group[group["alleleDiff"].abs() == best_alleleDiff]["providerId"].values[0]
+    best_alleleDiff = group[group['providerId'] == best_alleleDiff_motif]["alleleDiff"].values[0]
 
-    return f'{best_pct_score_motif}:{round(max(group[pctBest]),2)}', f'{best_alleleDiff_motif}:{round(best_alleleDiff,2)}'
+    return f'{best_score_motif}:{round(max(group[scoreBest]),2)}', f'{best_alleleDiff_motif}:{round(best_alleleDiff,2)}'
 
 
 def select_motif_results(OUTPUT, rare_enriched_promoter_snps, rare_enriched_enhancer_snps, snps_bed_files):
@@ -374,7 +375,7 @@ def select_motif_results(OUTPUT, rare_enriched_promoter_snps, rare_enriched_enha
     promoter_SNPs_motifbreakr_strong = promoter_SNPs_motifbreakr[promoter_SNPs_motifbreakr["effect"] == "strong"].copy()
     enhancer_SNPs_motifbreakr_strong = enhancer_SNPs_motifbreakr[enhancer_SNPs_motifbreakr["effect"] == "strong"].copy()
     
-    # add columns with info about best matches: motif with highest pct score and alleleDiff
+    # add columns with info about best matches: motif with highest score and alleleDiff
     # information about best motifs for each SNP will be stored in a dict in which SNP_ids will be keys
     best_motifs_dict = {}
 
@@ -382,6 +383,7 @@ def select_motif_results(OUTPUT, rare_enriched_promoter_snps, rare_enriched_enha
         for snp_id, snp_records in df.groupby("SNP_id"):
             best_match, highest_diff = find_best_matching_motif(snp_records)
             best_motifs_dict[snp_id] = {"best_match": best_match, "highest_diff": highest_diff}
+    
 
     # extract information from the dict to fill appropriate columns in enhancer and promoter SNPs dataframes
     enhancer_SNPs_motifbreakr_strong.loc[:, "motif_best_match"] = enhancer_SNPs_motifbreakr_strong.loc[:,"SNP_id"].apply(
@@ -447,12 +449,47 @@ def assign_genes_to_promoter_snps(rare_enriched_promoter_snps, PROMOTER_REGIONS)
 
     # create a dataframe from the intersection results, keep only columns with SNP location and gene(s) name(s)
     rare_enriched_promoter_snps_intersection_df = rare_enriched_promoter_snps_intersection.to_dataframe(
-        names=["CHROM", "POS", "Transcript"], usecols=[0, 2, 6]).drop_duplicates()
+        names=["CHROM", "POS","prom_start","prom_end", "Transcript"], usecols=[0, 2, 4,5,6]).drop_duplicates()
     rare_enriched_promoter_snps_gene = pd.merge(rare_enriched_promoter_snps,
                                                       rare_enriched_promoter_snps_intersection_df, how="left",
                                                       on=["CHROM", "POS"])
     print('Done: assigning genes to promoters')
     return rare_enriched_promoter_snps_gene
+
+# assign contacting transcripts using chromatin loops list
+def assign_chromatin_contacting_gene_to_promoter_with_loops(rare_enriched_promoter_snps_gene, TRANSCRIPTS_REGIONS, CHROMATIN_LOOPS):
+
+    transcripts = pd.read_csv(TRANSCRIPTS_REGIONS, sep='\t',header=None)
+    transcripts.rename(columns={0:'chr', 1:'start', 2:'end', 3:'contacting transcript'}, inplace=True)
+    looplist = pd.read_csv(CHROMATIN_LOOPS, sep='\t')
+    assert all(column in looplist.columns for column in ['chr1', 'x1', 'x2', 'chr2', 'y1', 'y2']) , 'Columns in looplist are not correct'
+    if looplist['chr1'][0][:3] != 'chr':
+        looplist['chr1'] = looplist['chr1'].apply(lambda x: 'chr'+x)
+        looplist['chr2'] = looplist['chr2'].apply(lambda x: 'chr'+x)
+    looplist = looplist[['chr1', 'x1', 'x2', 'chr2', 'y1', 'y2']].copy()
+    
+    # find enhancers which are in contact with transcript
+    # it means that there is loop which one anchor intersects with enhancer and second with transcript
+
+    # merge with rows where at least one chromosome is the same
+    snps_loops1 = rare_enriched_promoter_snps_gene.merge(looplist, left_on='CHROM', right_on='chr1', how='inner')
+    snps_loops2 = rare_enriched_promoter_snps_gene.merge(looplist, left_on='CHROM', right_on='chr2', how='inner')
+    snps_loops = pd.concat([snps_loops1, snps_loops2], ignore_index=True).drop_duplicates()
+    
+    # intersect enhancer with loop
+    snps_loops['intersection_with_x'] = snps_loops.apply(lambda x: (intersect_intervals([x['prom_start'], x['prom_end']], [x['x1'], x['x2']])) & (x['chr1']==x['CHROM']), axis=1)
+    snps_loops['intersection_with_y'] = snps_loops.apply(lambda x: (intersect_intervals([x['prom_start'], x['prom_end']], [x['y1'], x['y2']])) & (x['chr2']==x['CHROM']), axis=1)
+    snps_loops = snps_loops[(snps_loops['intersection_with_x'] != False) | (snps_loops['intersection_with_y'] != False)]
+
+    # intersect transcript with loop
+    snps_loops['second_anchor'] = snps_loops.apply(lambda x: 'y' if x['intersection_with_x'] != False else 'x', axis=1)
+    snps_loops = snps_loops.merge(transcripts, left_on='CHROM', right_on='chr', how='inner')
+    snps_loops['intersection_with_transcript'] = snps_loops.apply(lambda x: (intersect_intervals([x[f"{x['second_anchor']}1"], x[f"{x['second_anchor']}2"]], [x['start'], x['end']])) & (x['chr']==x['chr1' if x['second_anchor']=='x' else 'chr2']), axis=1)
+    snps_loops = snps_loops[snps_loops['intersection_with_transcript'] != False]
+    snps_loops = rare_enriched_promoter_snps_gene.merge(snps_loops[['CHROM', 'prom_start', 'prom_end', 'contacting transcript']], on=['CHROM', 'prom_start', 'prom_end'], how='left').fillna('.')
+
+    rare_enriched_enhancer_snps_gene_closest_contacts = snps_loops[list(rare_enriched_promoter_snps_gene.columns) + ['contacting transcript']]
+    return rare_enriched_enhancer_snps_gene_closest_contacts
 
 def find_transcript(row, genes_info):
     if row["Gene"] == '.':
@@ -647,15 +684,22 @@ def reformat_target_genes_enh(rare_enriched_enhancer_snps_gene_closest_contacts,
 
 def change_table_format_promoter(promoter_snps,genes_info):
     genes_info = pd.DataFrame(genes_info['info'].tolist())
+
+    promoter_snps['Transcript'] = promoter_snps['Transcript'].apply(lambda x: x+'(containing)' if x!='.' else x)
+    promoter_snps['contacting transcript'] = promoter_snps['contacting transcript'].apply(lambda x: x+'(contacting)' if x!='.' else x)
+
     new_promoter_snps = pd.DataFrame()
     for index,row in promoter_snps.iterrows():
-
-        for transcript in row['Transcript'].split(','):
+        for transcript in [i for i in row[['Transcript','contacting transcript']] if i!='.']:
             new_row = row.copy()
-            new_row['Transcript'] = transcript.split('/')[0]
-            new_row['Gene'] = transcript.split('/')[1]
+            new_row = new_row.drop(columns=['Transcript','contacting transcript'])
+            new_row['relation'] = transcript.split('(')[1].split(')')[0]
+            new_row['Transcript'] = transcript.split('(')[0]
+            new_row['Gene'] = new_row['Transcript'].split('/')[1]
+            new_row['Transcript'] = new_row['Transcript'].split('/')[0]
             new_row['Gene_ID'] = genes_info[genes_info['transcript_id'] == new_row['Transcript']]['gene_id'].values[0]
             new_promoter_snps = pd.concat([new_promoter_snps, pd.DataFrame([new_row])], ignore_index=True)
+    new_promoter_snps = new_promoter_snps.groupby(new_promoter_snps.columns.difference(['relation']).tolist(), as_index=False).agg({'relation': ';'.join})
     return new_promoter_snps
 
 # Calculate correlation between enhancer activity and gene expression
@@ -739,7 +783,7 @@ def import_vcf_sample_level(INPUT_VCF, OUTPUT, GATK, promoter_snps, enhancer_snp
         df['Num homalt'] = (df[var_columns] == 2).sum(axis=1)
 
         #at least two genotype groups should be represented
-        df = df[(df[['Num homref', 'Num het', 'Num homalt']] < 2).sum(axis=1) < 2].copy()
+        df = df[(df[['Num homref', 'Num het', 'Num homalt']] < 3).sum(axis=1) <= 1].copy()
         dataframes[name] = df
 
     enhancer_snps, promoter_snps = dataframes['enhancer_snps'], dataframes['promoter_snps']
@@ -792,10 +836,6 @@ def check_gene_genotype_correlation(GENE_EXPRESSION, promoter_snps, enhancer_snp
     enhancer_snps[['gene_expr_correlations_pval','gene_expr_correlations_sign']] = enhancer_snps.apply(calculate_correlation_genotype_gene, args=(counts,), axis=1)
     promoter_snps[['gene_expr_correlations_pval','gene_expr_correlations_sign']] = promoter_snps.apply(calculate_correlation_genotype_gene, args=(counts,), axis=1)
 
-    #drop rows with no significant correlation
-    enhancer_snps = enhancer_snps[enhancer_snps['gene_expr_correlations_pval'] != '.'].copy()
-    promoter_snps = promoter_snps[promoter_snps['gene_expr_correlations_pval'] != '.'].copy()
-
     print('Done: calculating correlation between genotype and gene expression')
     return promoter_snps, enhancer_snps
 
@@ -808,7 +848,7 @@ def calculate_correlation_genotype_signal(row,samples_act):
     genotype_vector = row[[sample+'.var' for sample in samples]]
     genotype_vector = [float(x) for x in genotype_vector]
 
-    if len([i for i in [0,1,2] if genotype_vector.count(i)>1])<2:
+    if len([i for i in [0,1,2] if genotype_vector.count(i)>2])<2:
         return pd.Series(['.', '.'])
         
     if np.std(enh_act_vector) > 0.05 and np.std(genotype_vector) > 0.05:
@@ -843,13 +883,6 @@ def check_genotype_signal_correlation(enhancer_snps, promoter_snps, ENHANCER_ACT
     merged = merged[['CHROM','POS']+samples_act+samples_var]
     merged.set_index(promoter_snps.index, inplace=True)
     promoter_snps[['genotype_act_corr_pval','genotype_act_corr_sign']]= merged.apply(calculate_correlation_genotype_signal, args=(samples_act,), axis=1)
-    promoter_snps.to_csv('output/sth_to_check.csv')
-
-    #drop rows with no correlation
-    enhancer_snps = enhancer_snps[enhancer_snps['genotype_act_corr_pval'] != '.'].copy()
-    promoter_snps = promoter_snps[promoter_snps['genotype_act_corr_pval'] != '.'].copy()
-    enhancer_snps.to_csv('output/enhancer_snps_corrected_values.csv', sep='\t')
-    promoter_snps.to_csv('output/promoter_snps_corrected_values.csv', sep='\t')
 
     print('Done: calculating correlation between genotype and promoter h3k27ac signal')
 
@@ -858,14 +891,27 @@ def check_genotype_signal_correlation(enhancer_snps, promoter_snps, ENHANCER_ACT
 
 def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHANCER_ACTIVITY,PROMOTER_ACTIVITY,threshold = 0.15):
     # select significant results
-    promoter_snps = promoter_snps[promoter_snps['gene_expr_correlations_pval'].astype(float) < threshold]
-    enhancer_snps = enhancer_snps[enhancer_snps['gene_expr_correlations_pval'].astype(float) < threshold]
-    enhancer_snps = enhancer_snps[enhancer_snps['genotype_act_corr_pval'].astype(float) < threshold]
-    promoter_snps = promoter_snps[promoter_snps['genotype_act_corr_pval'].astype(float) < threshold]
+    promoter_snps.to_csv('sth_to_check.csv')
 
-    # select results where sign of correlation is the same for gene expression and enhancer activity
-    enhancer_snps = enhancer_snps[enhancer_snps['genotype_act_corr_sign'] == enhancer_snps['gene_expr_correlations_sign']]
-    promoter_snps = promoter_snps[promoter_snps['genotype_act_corr_sign'] == promoter_snps['gene_expr_correlations_sign']]
+    enhancer_snps = enhancer_snps[(enhancer_snps['genotype_act_corr_pval'] != '.') | (enhancer_snps['gene_expr_correlations_pval'] != '.')].copy()
+    promoter_snps = promoter_snps[(promoter_snps['genotype_act_corr_pval'] != '.') | (promoter_snps['gene_expr_correlations_pval'] != '.')].copy()
+
+    promoter_snps = promoter_snps[(promoter_snps['gene_expr_correlations_pval'] == '.') | (promoter_snps['gene_expr_correlations_pval'].replace('.', 1).astype(float) < threshold)]
+    enhancer_snps = enhancer_snps[(enhancer_snps['gene_expr_correlations_pval'] == '.') | (enhancer_snps['gene_expr_correlations_pval'].replace('.', 1).astype(float) < threshold)]
+    promoter_snps = promoter_snps[(promoter_snps['genotype_act_corr_pval'] == '.') | (promoter_snps['genotype_act_corr_pval'].replace('.', 1).astype(float) < threshold)]
+    enhancer_snps = enhancer_snps[(enhancer_snps['genotype_act_corr_pval'] == '.') | (enhancer_snps['genotype_act_corr_pval'].replace('.', 1).astype(float) < threshold)]
+
+    # select results where sign of correlation is the same for gene expression and enhancer activity (only if signs for both tests are available)
+    mask = ((enhancer_snps['gene_expr_correlations_pval'] == '.') |
+        (enhancer_snps['genotype_act_corr_pval'] == '.') | 
+        (enhancer_snps['genotype_act_corr_sign'] == enhancer_snps['gene_expr_correlations_sign']))
+
+    enhancer_snps = enhancer_snps[mask]
+
+    mask = ((promoter_snps['gene_expr_correlations_pval'] == '.') |
+        (promoter_snps['genotype_act_corr_pval'] == '.') | 
+        (promoter_snps['genotype_act_corr_sign'] == promoter_snps['gene_expr_correlations_sign']))
+    promoter_snps = promoter_snps[mask]
 
     promoter_snps = promoter_snps.sort_values(by = 'gene_expr_correlations_pval')
     enhancer_snps = enhancer_snps.sort_values(by = 'gene_expr_correlations_pval')
@@ -885,94 +931,186 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
     #save plots to one pdf file
     with PdfPages(OUTPUT+'/plots.pdf') as pdf:  
         for index, row in enhancer_snps.iterrows():
-            # plots for enhancers
-            fig = plt.figure(figsize=(12, 5))
+            if (row['gene_expr_correlations_pval'] != '.') & (row['genotype_act_corr_pval'] != '.'):
+                # plots for enhancers
+                fig = plt.figure(figsize=(12, 5))
 
-            #produce plot genotype vs. gene expression
-            plt.subplot(1, 2, 1)
-            samples_vcf = [col.split('.')[0] for col in enhancer_snps.columns if '.var' in col]
-            samples_vcf = [el for el in samples_vcf if row[el+'.var']!='./.']
-            samples_expr = counts.columns.drop(["Transcript",'Gene'])
-            samples = list(set(samples_vcf) & set(samples_expr))
-            vars = row[[sample + '.var' for sample in samples]]
-            vars = [int(var)+np.random.uniform(-0.1, 0.1) for var in vars]
-            transcript_gene  = row['Transcript']+'_'+row['Gene']
-            exprs = counts[counts["Transcript"]==transcript_gene][samples]
-            plt.scatter(vars, exprs, s=5, marker='*')
-            genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
-            plt.xticks([0, 1, 2], genotype)
-            plt.xlabel('Genotype')
-            plt.ylabel('Expression for transcript '+row['Transcript']+'/'+row['Gene'])
-            genotype_counts = str(row['Num homref'])+'/'+str(row['Num het'])+'/'+str(row['Num homalt'])
-            pval = row['gene_expr_correlations_pval']
-            plt.title('Genotype vs. gene_expression pvalue '+ str(pval)+' '+genotype_counts)
+                #produce plot genotype vs. gene expression
+                plt.subplot(1, 2, 1)
+                samples_vcf = [col.split('.')[0] for col in enhancer_snps.columns if '.var' in col]
+                samples_vcf = [el for el in samples_vcf if row[el+'.var']!='./.']
+                samples_expr = counts.columns.drop(["Transcript",'Gene'])
+                samples = list(set(samples_vcf) & set(samples_expr))
+                vars = row[[sample + '.var' for sample in samples]]
+                vars = [int(var)+np.random.uniform(-0.1, 0.1) for var in vars]
+                transcript_gene  = row['Transcript']+'_'+row['Gene']
+                exprs = counts[counts["Transcript"]==transcript_gene][samples]
+                plt.scatter(vars, exprs, s=5, marker='*')
+                genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
+                plt.xticks([0, 1, 2], genotype)
+                plt.xlabel('Genotype')
+                plt.ylabel('Expression for transcript '+row['Transcript']+'/'+row['Gene'])
+                genotype_counts = str(row['Num homref'])+'/'+str(row['Num het'])+'/'+str(row['Num homalt'])
+                pval = row['gene_expr_correlations_pval']
+                plt.title('Genotype vs. gene_expression pvalue '+ str(pval)+' '+genotype_counts)
 
-            #produce plot genotype vs. H3K27ac coverage
-            plt.subplot(1, 2, 2)
-            samples_act = h3k27ac_enh.columns.drop(["CHROM", "enh_start", "enh_end"])
-            samples = list(set(samples_vcf) & set(samples_act))
-            vars = row[[sample + '.var' for sample in samples]]
-            vars = vars.values.tolist()
-            vars = [int(var) for var in vars]
-            genotype_counts = str(vars.count(0))+'/'+str(vars.count(1))+'/'+str(vars.count(2))
-            vars = [int(var)+np.random.uniform(-0.1, 0.1) for var in vars]
-            acts = h3k27ac_enh[(h3k27ac_enh["CHROM"]==row['CHROM']) & (h3k27ac_enh['enh_start']==row['enh_start']) & (h3k27ac_enh['enh_end']==row['enh_end'])][samples]
-            plt.scatter(vars, acts, s=5, marker='*')
-            genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
-            plt.xticks([0, 1, 2], genotype)
-            plt.xlabel('Genotype')
-            plt.ylabel('H3K27ac coverage for enhancer '+row['CHROM']+':'+str(row['enh_start'])+'-'+str(row['enh_end']))
-            pval = row['genotype_act_corr_pval']
-            plt.title('Genotype vs. enhancer activity pvalue '+ str(pval)+' '+genotype_counts)
+                #produce plot genotype vs. H3K27ac coverage
+                plt.subplot(1, 2, 2)
+                samples_act = h3k27ac_enh.columns.drop(["CHROM", "enh_start", "enh_end"])
+                samples = list(set(samples_vcf) & set(samples_act))
+                vars = row[[sample + '.var' for sample in samples]]
+                vars = vars.values.tolist()
+                vars = [int(var) for var in vars]
+                genotype_counts = str(vars.count(0))+'/'+str(vars.count(1))+'/'+str(vars.count(2))
+                vars = [int(var)+np.random.uniform(-0.1, 0.1) for var in vars]
+                acts = h3k27ac_enh[(h3k27ac_enh["CHROM"]==row['CHROM']) & (h3k27ac_enh['enh_start']==row['enh_start']) & (h3k27ac_enh['enh_end']==row['enh_end'])][samples]
+                plt.scatter(vars, acts, s=5, marker='*')
+                genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
+                plt.xticks([0, 1, 2], genotype)
+                plt.xlabel('Genotype')
+                plt.ylabel('H3K27ac coverage for enhancer '+row['CHROM']+':'+str(row['enh_start'])+'-'+str(row['enh_end']))
+                pval = row['genotype_act_corr_pval']
+                plt.title('Genotype vs. enhancer activity pvalue '+ str(pval)+' '+genotype_counts)
 
-            fig.suptitle('SNP in enhancer '+row['CHROM']+':'+str(row['POS'])+row['REF']+'>'+row['ALT'])
-            pdf.savefig() 
-            plt.close()
+                fig.suptitle('SNP in enhancer '+row['CHROM']+':'+str(row['POS'])+row['REF']+'>'+row['ALT'])
+                pdf.savefig() 
+                plt.close()
+            elif row['gene_expr_correlations_pval'] != '.':
+                # plots for enhancers
+                fig = plt.figure(figsize=(6, 5))
+
+                #produce only one plot: genotype vs. gene expression
+                samples_vcf = [col.split('.')[0] for col in enhancer_snps.columns if '.var' in col]
+                samples_vcf = [el for el in samples_vcf if row[el+'.var']!='./.']
+                samples_expr = counts
+                samples = list(set(samples_vcf) & set(samples_expr))
+                vars = row[[sample + '.var' for sample in samples]]
+                vars = [int(var)+np.random.uniform(-0.1, 0.1) for var in vars]
+                transcript_gene  = row['Transcript']+'_'+row['Gene']
+                exprs = counts[counts['Transcript']==transcript_gene][samples]
+                plt.scatter(vars, exprs, s=5, marker='*')
+                genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
+                plt.xticks([0, 1, 2], genotype)
+                plt.xlabel('Genotype')
+                plt.ylabel('Expression for transcript '+row['Transcript']+'/'+row['Gene'])
+                genotype_counts = str(row['Num homref'])+'/'+str(row['Num het'])+'/'+str(row['Num homalt'])
+                pval = row['gene_expr_correlations_pval']
+                plt.title('SNP in enhancer '+row['CHROM']+':'+str(row['POS'])+row['REF']+'>'+row['ALT']+'\nGenotype vs. gene_expression pvalue '+ str(pval)+' '+genotype_counts)
+                pdf.savefig() 
+                plt.close()
+            else:
+                fig = plt.figure(figsize=(6, 5))
+
+                #produce only one plot: genotype vs. H3K27ac coverage
+                samples_act = h3k27ac_enh.columns.drop(["CHROM", "enh_start", "enh_end"])
+                samples = list(set(samples_vcf) & set(samples_act))
+                vars = row[[sample + '.var' for sample in samples]]
+                vars = vars.values.tolist()
+                vars = [int(var) for var in vars]
+                genotype_counts = str(vars.count(0))+'/'+str(vars.count(1))+'/'+str(vars.count(2))
+                vars = [int(var)+np.random.uniform(-0.1, 0.1) for var in vars]
+                acts = h3k27ac_enh[(h3k27ac_enh["CHROM"]==row['CHROM']) & (h3k27ac_enh['enh_start']==row['enh_start']) & (h3k27ac_enh['enh_end']==row['enh_end'])][samples]
+                plt.scatter(vars, acts, s=5, marker='*')
+                genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
+                plt.xticks([0, 1, 2], genotype)
+                plt.xlabel('Genotype')
+                plt.ylabel('H3K27ac coverage for enhancer '+row['CHROM']+':'+str(row['enh_start'])+'-'+str(row['enh_end']))
+                pval = row['genotype_act_corr_pval']
+                plt.title('SNP in enhancer '+row['CHROM']+':'+str(row['POS'])+row['REF']+'>'+row['ALT']+'\nGenotype vs. enhancer activity pvalue '+ str(pval)+' '+genotype_counts)
+                pdf.savefig()
+                plt.close()
+
 
         for index, row in promoter_snps.iterrows():
-            # plots for promoters
-            fig = plt.figure(figsize=(12, 5))
+            if (row['gene_expr_correlations_pval'] != '.') & (row['genotype_act_corr_pval'] != '.'):
+    
+                # plots for promoters
+                fig = plt.figure(figsize=(12, 5))
 
-            #produce plot genotype vs. gene expression
-            plt.subplot(1, 2, 1)
-            samples_vcf = [col.split('.')[0] for col in promoter_snps.columns if '.var' in col]
-            samples_vcf = [el for el in samples_vcf if row[el+'.var']!='./.']
-            samples_expr = counts.columns.drop(["Transcript",'Gene'])
-            samples = list(set(samples_vcf) & set(samples_expr))
-            vars = row[[sample + '.var' for sample in samples]]
-            vars = [int(var)+np.random.uniform(-0.1, 0.1) for var in vars]
-            transcript_gene  = row['Transcript']+'_'+row['Gene']
-            exprs = counts[counts["Transcript"]==transcript_gene][samples]
-            plt.scatter(vars, exprs, s=5, marker='*')
-            genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
-            plt.xticks([0, 1, 2], genotype)
-            plt.xlabel('Genotype')
-            plt.ylabel('Expression for transcript '+row['Transcript']+'/'+row['Gene'])
-            genotype_counts = str(row['Num homref'])+'/'+str(row['Num het'])+'/'+str(row['Num homalt'])
-            pval = row['gene_expr_correlations_pval']
-            plt.title('Genotype vs. gene_expression pvalue '+ str(pval)+' '+genotype_counts)
+                #produce plot genotype vs. gene expression
+                plt.subplot(1, 2, 1)
+                samples_vcf = [col.split('.')[0] for col in promoter_snps.columns if '.var' in col]
+                samples_vcf = [el for el in samples_vcf if row[el+'.var']!='./.']
+                samples_expr = counts.columns.drop(["Transcript",'Gene'])
+                samples = list(set(samples_vcf) & set(samples_expr))
+                vars = row[[sample + '.var' for sample in samples]]
+                vars = [int(var)+np.random.uniform(-0.1, 0.1) for var in vars]
+                transcript_gene  = row['Transcript']+'_'+row['Gene']
+                exprs = counts[counts["Transcript"]==transcript_gene][samples]
+                plt.scatter(vars, exprs, s=5, marker='*')
+                genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
+                plt.xticks([0, 1, 2], genotype)
+                plt.xlabel('Genotype')
+                plt.ylabel('Expression for transcript '+row['Transcript']+'/'+row['Gene'])
+                genotype_counts = str(row['Num homref'])+'/'+str(row['Num het'])+'/'+str(row['Num homalt'])
+                pval = row['gene_expr_correlations_pval']
+                plt.title('Genotype vs. gene_expression pvalue '+ str(pval)+' '+genotype_counts)
 
-            #produce plot genotype vs. H3K27ac coverage
-            plt.subplot(1, 2, 2)
-            samples_act = h3k27ac_prom.columns.drop(["Transcript"])
-            samples = list(set(samples_vcf) & set(samples_act))
-            vars = row[[sample + '.var' for sample in samples]]
-            vars = vars.values.tolist()
-            vars = [int(var) for var in vars]
-            genotype_counts = str(vars.count(0))+'/'+str(vars.count(1))+'/'+str(vars.count(2))
-            vars = [var+np.random.uniform(-0.1, 0.1) for var in vars]
-            acts = h3k27ac_prom[h3k27ac_prom["Transcript"]==row['Transcript']][samples]
-            plt.scatter(vars, acts, s=5, marker='*')
-            genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
-            plt.xticks([0, 1, 2], genotype)
-            plt.xlabel('Genotype')
-            plt.ylabel('H3K27ac coverage for promoter '+row['Transcript']+'/'+row['Gene'])
-            pval = row['genotype_act_corr_pval']
-            plt.title('Genotype vs. h3k27ac pvalue '+ str(pval)+' '+genotype_counts)
+                #produce plot genotype vs. H3K27ac coverage
+                plt.subplot(1, 2, 2)
+                samples_act = h3k27ac_prom.columns.drop(["Transcript"])
+                samples = list(set(samples_vcf) & set(samples_act))
+                vars = row[[sample + '.var' for sample in samples]]
+                vars = vars.values.tolist()
+                vars = [int(var) for var in vars]
+                genotype_counts = str(vars.count(0))+'/'+str(vars.count(1))+'/'+str(vars.count(2))
+                vars = [var+np.random.uniform(-0.1, 0.1) for var in vars]
+                acts = h3k27ac_prom[h3k27ac_prom["Transcript"]==row['Transcript']][samples]
+                plt.scatter(vars, acts, s=5, marker='*')
+                genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
+                plt.xticks([0, 1, 2], genotype)
+                plt.xlabel('Genotype')
+                plt.ylabel('H3K27ac coverage for promoter '+row['Transcript']+'/'+row['Gene'])
+                pval = row['genotype_act_corr_pval']
+                plt.title('Genotype vs. h3k27ac pvalue '+ str(pval)+' '+genotype_counts)
 
-            fig.suptitle('SNP in promoter  '+row['CHROM']+':'+str(row['POS'])+row['REF']+'>'+row['ALT'])
-            pdf.savefig() 
-            plt.close()
+                fig.suptitle('SNP in promoter '+row['CHROM']+':'+str(row['POS'])+row['REF']+'>'+row['ALT'])
+                pdf.savefig() 
+                plt.close()
+            elif row['gene_expr_correlations_pval'] != '.':
+                # plots for promoters
+                fig = plt.figure(figsize=(6, 5))
+
+                #produce only one plot: genotype vs. gene expression
+                samples_vcf = [col.split('.')[0] for col in promoter_snps.columns if '.var' in col]
+                samples_vcf = [el for el in samples_vcf if row[el+'.var']!='./.']
+                samples_expr = counts
+                samples = list(set(samples_vcf) & set(samples_expr))
+                vars = row[[sample + '.var' for sample in samples]]
+                vars = [int(var)+np.random.uniform(-0.1, 0.1) for var in vars]
+                transcript_gene  = row['Transcript']+'_'+row['Gene']
+                exprs = counts[counts['Transcript']==transcript_gene][samples]
+                plt.scatter(vars, exprs, s=5, marker='*')
+                genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
+                plt.xticks([0, 1, 2], genotype)
+                plt.xlabel('Genotype')
+                plt.ylabel('Expression for transcript '+row['Transcript']+'/'+row['Gene'])
+                genotype_counts = str(row['Num homref'])+'/'+str(row['Num het'])+'/'+str(row['Num homalt'])
+                pval = row['gene_expr_correlations_pval']
+                plt.title('SNP in promoter '+row['CHROM']+':'+str(row['POS'])+row['REF']+'>'+row['ALT']+'\nGenotype vs. gene_expression pvalue '+ str(pval)+' '+genotype_counts)
+                pdf.savefig()
+                plt.close()
+            else:
+                fig = plt.figure(figsize=(6, 5))
+
+                #produce only one plot: genotype vs. H3K27ac coverage
+                samples_act = h3k27ac_prom.columns.drop(["Transcript"])
+                samples = list(set(samples_vcf) & set(samples_act))
+                vars = row[[sample + '.var' for sample in samples]]
+                vars = vars.values.tolist()
+                vars = [int(var) for var in vars]
+                genotype_counts = str(vars.count(0))+'/'+str(vars.count(1))+'/'+str(vars.count(2))
+                vars = [var+np.random.uniform(-0.1, 0.1) for var in vars]
+                acts = h3k27ac_prom[h3k27ac_prom["Transcript"]==row['Transcript']][samples]
+                plt.scatter(vars, acts, s=5, marker='*')
+                genotype = [row['REF']*2, row['REF']+row['ALT'], row['ALT']*2]
+                plt.xticks([0, 1, 2], genotype)
+                plt.xlabel('Genotype')
+                plt.ylabel('H3K27ac coverage for promoter '+row['Transcript']+'/'+row['Gene'])
+                pval = row['genotype_act_corr_pval']
+                plt.title('SNP in promoter '+row['CHROM']+':'+str(row['POS'])+row['REF']+'>'+row['ALT']+'\nGenotype vs. h3k27ac pvalue '+ str(pval)+' '+genotype_counts)
+                pdf.savefig()
+                plt.close()
         
     # dropping not important columns
     cols_to_drop_enh = [col for col in enhancer_snps.columns if (('.AD' in col) or ('.GT' in col) or ('.var' in col))]
@@ -992,7 +1130,7 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
                                                     'Gene':'Gene_name'})
     
     promoter_snps = promoter_snps.rename(columns = {'genotype_act_corr_pval' : 'p-value_for_correlation_genotype_vs_h3k27ac',
-                                                    'gene_expr_correlations':'p-value_for_correlation_genotype_vs_expression',
+                                                    'gene_expr_correlations_pval':'p-value_for_correlation_genotype_vs_expression',
                                                     'Gene':'Gene_name'})
 
 
@@ -1003,8 +1141,7 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
     enhancer_snps = enhancer_snps.reindex(columns=cols_order_enh)   
 
     cols_order_prom = ['CHROM','POS','REF','ALT','AC','AF','AN','Num homref','Num het','Num homalt']+gnomad_cols+['binom_pval','corrected_binom_pval','genomic element','Gene_name','Gene_ID','Transcript','relation']+ [col for col in promoter_snps.columns if ('p-value' in col)]+motif_cols
-    promoter_snps = promoter_snps.reindex(columns=cols_order_prom)   
-    promoter_snps['relation'] = 'containing'
+    promoter_snps = promoter_snps.reindex(columns=cols_order_prom)
     promoter_snps['p-value_for_correlation_expression_vs_h3k27ac'] = '.'
     promoter_snps.reset_index(drop=True, inplace=True)
     enhancer_snps.reset_index(drop=True, inplace=True)
