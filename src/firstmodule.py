@@ -27,7 +27,6 @@ def check_programs(GATK, ANNOVAR):
         flags[1] = 0
     except subprocess.CalledProcessError as e:
         if e.returncode == 1:
-            print('ANNOVAR ran successfully, but returned a non-zero exit code (1). This can be ignored.')
             print('ANNOVAR is installed correctly.')
             flags[1] = 0
 
@@ -53,6 +52,30 @@ def check_R_packages(R_PACKAGES_PATH):
     if 'MotifDb' in os.listdir(R_PACKAGES_PATH):
         result[2] = 0
     return result
+
+def prepare_genes_info(GENES_INFO):
+    genes_info = pd.read_csv(GENES_INFO, sep='\t')
+    assert all(column in genes_info.columns for column in ['chr', 'start','end','strand','Gene_name','Gene_ID','Transcript']) , 'Columns in genes_info are not correct'
+    genes_info = genes_info[['chr', 'start','end','strand','Gene_name','Gene_ID','Transcript']].copy()
+    genes_info['tss'] = genes_info.apply(lambda x: x['start'] if x['strand'] == '+' else x['end'], axis=1)
+    return genes_info
+
+def select_promoter_regions(genes_info, promoter_range, active_promoters, active_promoter_data_type):
+    promoter_regions = genes_info[['chr', 'tss','Transcript']].copy()
+    promoter_regions['ENST'] = promoter_regions['Transcript'].apply(lambda x: x.split('/')[0])
+    promoter_regions['start'] = (promoter_regions['tss'] - promoter_range).clip(lower=0)
+    promoter_regions['end'] = promoter_regions['tss'] + promoter_range
+    
+    if active_promoters:
+        active_promoters = pd.read_csv(active_promoters, sep='\t', header=None)
+        if active_promoter_data_type == 'ENST':
+            col_number = [i for i in range(active_promoters.shape[1]) if 'ENST' in str(active_promoters.iloc[0,i])]
+            assert len(col_number)!=0, 'No column with ENST IDs in provided file.'
+            promoter_regions = promoter_regions[promoter_regions['ENST'].isin(active_promoters[col_number[0]])]
+        if active_promoter_data_type == 'TSS':
+            promoter_regions = promoter_regions[promoter_regions['tss'].isin(active_promoters[1]) and promoter_regions['chr'].isin(active_promoters[0])]
+    promoter_regions = promoter_regions.drop(columns=['tss','ENST'])
+    return promoter_regions
 
 def index_input_vcf(INPUT_VCF, GATK):
     vcf_path = '/'.join(INPUT_VCF.split('/')[0:-1])
@@ -83,11 +106,15 @@ def count_variants(GATK, INPUT_VCF):
         result = None
 
 
-def select_biallelic_inside_regulatory_regions(GATK, INPUT_VCF, PROMOTER_REGIONS, ENHANCER_REGIONS, OUTPUT):
+def select_biallelic_inside_regulatory_regions(GATK, INPUT_VCF, promoter_regions,PROMOTER_REGIONS_BED_PATH, ENHANCER_REGIONS, OUTPUT):
     select_logs = []
     count_logs = []
     result_files={}
-    for r, regions in [("promoter", PROMOTER_REGIONS), ("enhancer", ENHANCER_REGIONS)]:
+
+    # create bed file with promoter_regions
+    promoter_regions[['chr','start','end','Transcript']].to_csv(PROMOTER_REGIONS_BED_PATH, sep='\t', index=False, header=False)
+
+    for r, regions in [("promoter", PROMOTER_REGIONS_BED_PATH), ("enhancer", ENHANCER_REGIONS)]:
         result_files[r] = f'{OUTPUT}/{r}_intermediate_result.vcf'
         command1 = f"{GATK} SelectVariants -V {INPUT_VCF} -L {regions} --select-type-to-include SNP --restrict-alleles-to BIALLELIC -O {result_files[r]}"
         print('Selecting biallelic variants for', r)
@@ -110,48 +137,112 @@ def select_biallelic_inside_regulatory_regions(GATK, INPUT_VCF, PROMOTER_REGIONS
 #
 # #ANNOVAR - annotate frequencies
 # #download database
-def prepare_annovar_database(ANNOVAR):   # może dodać możliwość załączenia własnej bazy danych
-    downloaded_flag=0
+def prepare_hg38_annovar_database(ANNOVAR):
+    downloaded_flag=1
     if ('humandb' in os.listdir(ANNOVAR)):
-        if ('hg38_gnomad_genome.txt' in os.listdir(ANNOVAR + 'humandb')):
+        if ('hg38_gnomad_genome.txt' in os.listdir(ANNOVAR + '/humandb')):
             print('You already have human genome 38 database ready to use.')
-            return 1
-        if ('hg38_gnomad_genome.txt.gz' in os.listdir(ANNOVAR + 'humandb')):
+            return 0
+        if ('hg38_gnomad_genome.txt.gz' in os.listdir(ANNOVAR + '/humandb')):
             print('You already have human genome 38 database. It need to be unpacked. Do you want to unpack it now? (y/n)')
             answer = input()
             if answer == 'y':
-                command = f'gunzip {ANNOVAR}humandb/hg38_gnomad_genome.txt.gz'
+                command = f'gunzip {ANNOVAR}/humandb/hg38_gnomad_genome.txt.gz'
                 try:
                     logs = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT,
                                                     universal_newlines=True).splitlines()
-                    print('Annovar database human genome 38 unpacked under path:', ANNOVAR + 'humandb/')
-                    downloaded_flag = 1
+                    print('Annovar database human genome 38 unpacked under path:', ANNOVAR + '/humandb/')
+                    return 0
                 except subprocess.CalledProcessError as e:
                     print('ANNOVAR database could not be unpacked. Please check if you have enough space on your disk.')
-                    return 0
+                    return 1
+            else:
+                return 1
             
+    command = f'perl {ANNOVAR}annotate_variation.pl -buildver hg38 -downdb -webfrom annovar gnomad_genome {ANNOVAR}/humandb/'
+    try:
+        print('Database need to be downloaded')
+        logs = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT,
+                                            universal_newlines=True).splitlines()
+        print('Annovar database human genome 38 downloaded under path:', ANNOVAR + '/humandb/') #'hg38_gnomad_genome.txt' is 17G heavy
+        downloaded_flag = 0
+    except subprocess.CalledProcessError as e:
+        print(f"Command '{command}' failed with error code {e.returncode}:\n{e.output}")
+    return downloaded_flag # 0 - database downloaded, 1 - database not downloaded
 
-    if downloaded_flag == 0:
-        command = f'perl {ANNOVAR}annotate_variation.pl -buildver hg19 -downdb -webfrom annovar gnomad_genome {ANNOVAR}humandb/'
-        try:
-            print('Database need to be downloaded')
-            logs = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT,
-                                             universal_newlines=True).splitlines()
-            print('Annovar database human genome 38 downloaded under path:', ANNOVAR + 'humandb/') #'hg38_gnomad_genome.txt' is 17G heavy
-            downloaded_flag = 1
-        except subprocess.CalledProcessError as e:
-            print(f"Command '{command}' failed with error code {e.returncode}:\n{e.output}")
-    return downloaded_flag # 1 - database downloaded, 0 - database not downloaded
+def prepare_mm39_annovar_database(ANNOVAR):
+    downloaded_flag=1
+    if ('mousedb' in os.listdir(ANNOVAR)):
+        if ('mm39_refGene.txt' in os.listdir(ANNOVAR + '/mousedb')):
+            print('You already have mouse genome 39 database ready to use.')
+            return 0
 
+    command1 = f'perl {ANNOVAR}/annotate_variation.pl -downdb -buildver mm39 gene {ANNOVAR}/mousedb'
+    command2 = f'perl {ANNOVAR}/annotate_variation.pl --buildver mm39 --downdb seq {ANNOVAR}/mousedb/mm39_seq'
+    command3 = f'perl {ANNOVAR}/retrieve_seq_from_fasta.pl {ANNOVAR}/mousedb/mm39_refGene.txt -seqdir {ANNOVAR}/mousedb/mm39_seq -format refGene -outfile {ANNOVAR}/mousedb/mm39_refGeneMrna.fa'
 
-def annotate_freq(variants_vcf_file_dict, ANNOVAR):
+    print('Database mm39 need to be downloaded and built.')
+    try:
+        logs = subprocess.check_output(command1, shell=True, stderr=subprocess.STDOUT,
+                                            universal_newlines=True).splitlines()
+    except subprocess.CalledProcessError as e:
+        print(f"Command '{command1}' failed with error code {e.returncode}:\n{e.output}")
+    try:
+        logs = subprocess.check_output(command2, shell=True, stderr=subprocess.STDOUT,
+                                            universal_newlines=True).splitlines()
+    except subprocess.CalledProcessError as e:
+        print(f"Command '{command2}' failed with error code {e.returncode}:\n{e.output}")
+    try:
+        logs = subprocess.check_output(command3, shell=True, stderr=subprocess.STDOUT,
+                                            universal_newlines=True).splitlines()
+        print(f'Annovar database mouse genome 39 downloaded under path: {ANNOVAR}/mousedb/')
+        downloaded_flag = 0
+    except subprocess.CalledProcessError as e:
+        print(f"Command '{command3}' failed with error code {e.returncode}:\n{e.output}")
+    return downloaded_flag # 0 - database downloaded, 1 - database not downloaded
+
+def prepare_dm3_annovar_database(ANNOVAR):
+    downloaded_flag=1
+    if ('drosophiladb' in os.listdir(ANNOVAR)):
+        if ('dm3_refGene.txt' in os.listdir(ANNOVAR + '/drosophiladb')):
+            print('You already have drosophila genome 3 database ready to use.')
+            return 0
+
+    command1 = f'perl {ANNOVAR}/annotate_variation.pl -downdb -buildver dm3 gene {ANNOVAR}/drosophiladb'
+    command2 = f'perl {ANNOVAR}/annotate_variation.pl --buildver dm3 --downdb seq {ANNOVAR}/drosophiladb/dm3_seq'
+    command3 = f'perl {ANNOVAR}/retrieve_seq_from_fasta.pl {ANNOVAR}/drosophiladb/dm3_refGene.txt -seqdir {ANNOVAR}/drosophiladb/dm3_seq -format refGene -outfile {ANNOVAR}/drosophiladb/dm3_refGeneMrna.fa'
+
+    print('Database dm3 need to be downloaded and built.')
+    try:
+        logs = subprocess.check_output(command1, shell=True, stderr=subprocess.STDOUT,
+                                            universal_newlines=True).splitlines()
+    except subprocess.CalledProcessError as e:
+        print(f"Command '{command1}' failed with error code {e.returncode}:\n{e.output}")
+    try:
+        logs = subprocess.check_output(command2, shell=True, stderr=subprocess.STDOUT,
+                                            universal_newlines=True).splitlines()
+    except subprocess.CalledProcessError as e:
+        print(f"Command '{command2}' failed with error code {e.returncode}:\n{e.output}")
+    try:
+        logs = subprocess.check_output(command3, shell=True, stderr=subprocess.STDOUT,
+                                            universal_newlines=True).splitlines()
+        print(f'Annovar database drosophila genome 3 downloaded under path: {ANNOVAR}/drosophiladb/')
+        downloaded_flag = 0
+    except subprocess.CalledProcessError as e:
+        print(f"Command '{command3}' failed with error code {e.returncode}:\n{e.output}")
+    return downloaded_flag # 0 - database downloaded, 1 - database not downloaded
+
+def annotate_freq(variants_vcf_file_dict, ANNOVAR, genome_version):
     annovar_logs = []
     result_vcf_files_dict={}
     for r in ["promoter", "enhancer"]:
         out_file = variants_vcf_file_dict[r].split('.vcf')[0]
-        result_vcf_files_dict[r] = out_file+'.hg38_multianno.vcf'
+        result_vcf_files_dict[r] = f'{out_file}.{genome_version}_multianno.vcf'
         
-        command = f"perl {ANNOVAR}table_annovar.pl {variants_vcf_file_dict[r]} {ANNOVAR}humandb/ -buildver hg38 -remove -protocol gnomad_genome -operation f -nastring . -vcfinput -out {out_file} -polish" 
+        db_path = {'hg38': f'{ANNOVAR}/humandb/', 'mm39': f'{ANNOVAR}/mousedb/'}[genome_version]
+        protocol = {'hg38': 'gnomad_genome', 'mm39': 'refGene'}[genome_version]
+
+        command = f"perl {ANNOVAR}table_annovar.pl {variants_vcf_file_dict[r]} {db_path} -buildver {genome_version} -remove -protocol {protocol} -operation f -nastring . -vcfinput -out {out_file} -polish" 
         try:
             log = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT,
                                       universal_newlines=True).splitlines()
@@ -170,7 +261,7 @@ def annotate_freq(variants_vcf_file_dict, ANNOVAR):
 # population - list of populations to be used in frequency filter
 def select_snps_by_freq(annotated_variants_file_dict, GATK, population, treating_gaps, target='r', cutoff=0.01):
     result_files_dict = annotated_variants_file_dict.copy()
-    gaps_dict = {'r': '=0.0', 'c': '=100.0'}
+    gaps_dict = {'r': f'={cutoff/2}', 'c': '=100.0'}
     ineq_sign = {'r': '<', 'c': '>'}
     target_full_word = {'r': 'rare', 'c': 'common'}
     population = list(set(population+['ALL']))
@@ -296,7 +387,7 @@ def snps_to_bed_file(rare_enriched_promoter_snps, rare_enriched_enhancer_snps, O
             "ALT"]
         snps_bed["score"] = 0
         snps_bed["strand"] = "+"
-        output_bed_path = "%s/%s_rare_enriched_SNPs_interediate_result.bed" % (OUTPUT, r)
+        output_bed_path = "%s/%s_rare_enriched_SNPs_intermediate_result.bed" % (OUTPUT, r)
         snps_bed.to_csv(output_bed_path, sep="\t", index=False, header=False)
         snps_bed_files.append(output_bed_path)
     return snps_bed_files
@@ -312,7 +403,7 @@ def prepare_motifs_object(path_to_r_packages):
         library('motifbreakR', lib.loc="''' + path_to_r_packages + '''")
         library('BSgenome.Hsapiens.UCSC.hg38', lib.loc="''' + path_to_r_packages + '''")
         library('MotifDb', lib.loc="''' + path_to_r_packages + '''")
-        motifs <- query(MotifDb, andStrings=c("hocomocov11", "hsapiens"))
+        motifs <- query(MotifDb, andStrings=c("hocomocov11", "hsapiens"))    # zmienić dla innych gatunków
     ''')
 
 
@@ -330,7 +421,6 @@ def score_motifs(snps_bed_files, path_to_r_packages):
         score_snps <- function(snps_file, out_file) {
             #read SNPs from input bed file
             snps.mb.frombed <- snps.from.file(file = snps_file, search.genome = BSgenome.Hsapiens.UCSC.hg38, format = "bed")
-        
             #calculate scores
             results_log <- motifbreakR(snpList = snps.mb.frombed, filterp = TRUE,
                                    pwmList = motifs,
@@ -355,6 +445,7 @@ def score_motifs(snps_bed_files, path_to_r_packages):
 
 
 def find_best_matching_motif(group):
+    print('Searching for motifs')
     # find motif with highest score (either for REF or ALT)
     scoreBest = "scoreRef" if max(group["scoreRef"])>max(group["scoreAlt"]) else "scoreAlt"
     best_score_motif = group[group[scoreBest] == max(group[scoreBest])]["providerId"].values[0]
@@ -431,10 +522,11 @@ def find_motifs(rare_enriched_promoter_snps, rare_enriched_enhancer_snps, OUTPUT
     return rare_enriched_promoter_snps_motif, rare_enriched_enhancer_snps_motif
 
 
-def assign_genes_to_promoter_snps(rare_enriched_promoter_snps, PROMOTER_REGIONS):
+def assign_genes_to_promoter_snps(rare_enriched_promoter_snps, PROMOTER_REGIONS_BED_PATH):
     rare_enriched_promoter_snps["genomic element"] = "promoter"
+
     # create BedTool object from promoter regions bed
-    promoters_info = pbt.BedTool(PROMOTER_REGIONS)
+    promoters_info = pbt.BedTool(PROMOTER_REGIONS_BED_PATH)
 
     # create BedTool object from dataframe with selected promoter SNPs
     rare_enriched_promoter_snps["POS-1"] = rare_enriched_promoter_snps["POS"] - 1
@@ -453,43 +545,83 @@ def assign_genes_to_promoter_snps(rare_enriched_promoter_snps, PROMOTER_REGIONS)
     rare_enriched_promoter_snps_gene = pd.merge(rare_enriched_promoter_snps,
                                                       rare_enriched_promoter_snps_intersection_df, how="left",
                                                       on=["CHROM", "POS"])
+    rare_enriched_promoter_snps_gene['relation'] = 'containing'
     print('Done: assigning genes to promoters')
     return rare_enriched_promoter_snps_gene
 
 # assign contacting transcripts using chromatin loops list
-def assign_chromatin_contacting_gene_to_promoter_with_loops(rare_enriched_promoter_snps_gene, TRANSCRIPTS_REGIONS, CHROMATIN_LOOPS):
+def assign_chromatin_contacting_gene_to_promoter_with_loops(rare_enriched_promoter_snps_gene, genes_info, CHROMATIN_LOOPS,OUTPUT):
 
-    transcripts = pd.read_csv(TRANSCRIPTS_REGIONS, sep='\t',header=None)
-    transcripts.rename(columns={0:'chr', 1:'start', 2:'end', 3:'contacting transcript'}, inplace=True)
     looplist = pd.read_csv(CHROMATIN_LOOPS, sep='\t')
     assert all(column in looplist.columns for column in ['chr1', 'x1', 'x2', 'chr2', 'y1', 'y2']) , 'Columns in looplist are not correct'
+    # add prefix 'chr' to chromosome names if missing
     if looplist['chr1'][0][:3] != 'chr':
         looplist['chr1'] = looplist['chr1'].apply(lambda x: 'chr'+x)
         looplist['chr2'] = looplist['chr2'].apply(lambda x: 'chr'+x)
     looplist = looplist[['chr1', 'x1', 'x2', 'chr2', 'y1', 'y2']].copy()
-    
+
+    snps_prom = rare_enriched_promoter_snps_gene[rare_enriched_promoter_snps_gene.columns.difference(['Transcript','relation']).tolist()].drop_duplicates()
+    anchors = pd.concat([looplist[['chr1', 'x1', 'x2']].rename(columns={'x1':'anchor_start', 'x2':'anchor_end'}), looplist[['chr2', 'y1', 'y2']].rename(columns={'chr2':'chr1', 'y1':'anchor_start', 'y2':'anchor_end'})], ignore_index=True)
+    anchors = anchors.drop_duplicates()
+
     # find enhancers which are in contact with transcript
     # it means that there is loop which one anchor intersects with enhancer and second with transcript
 
-    # merge with rows where at least one chromosome is the same
-    snps_loops1 = rare_enriched_promoter_snps_gene.merge(looplist, left_on='CHROM', right_on='chr1', how='inner')
-    snps_loops2 = rare_enriched_promoter_snps_gene.merge(looplist, left_on='CHROM', right_on='chr2', how='inner')
-    snps_loops = pd.concat([snps_loops1, snps_loops2], ignore_index=True).drop_duplicates()
-    
-    # intersect enhancer with loop
-    snps_loops['intersection_with_x'] = snps_loops.apply(lambda x: (intersect_intervals([x['prom_start'], x['prom_end']], [x['x1'], x['x2']])) & (x['chr1']==x['CHROM']), axis=1)
-    snps_loops['intersection_with_y'] = snps_loops.apply(lambda x: (intersect_intervals([x['prom_start'], x['prom_end']], [x['y1'], x['y2']])) & (x['chr2']==x['CHROM']), axis=1)
-    snps_loops = snps_loops[(snps_loops['intersection_with_x'] != False) | (snps_loops['intersection_with_y'] != False)]
+    # Convert the DataFrame to BED format and save it as a file
+    promoter_bed = snps_prom[['CHROM', 'prom_start', 'prom_end']]
+    promoter_bed.to_csv(OUTPUT+'/promoter_intermediate_result.bed', sep='\t', header=False, index=False)
 
-    # intersect transcript with loop
-    snps_loops['second_anchor'] = snps_loops.apply(lambda x: 'y' if x['intersection_with_x'] != False else 'x', axis=1)
-    snps_loops = snps_loops.merge(transcripts, left_on='CHROM', right_on='chr', how='inner')
-    snps_loops['intersection_with_transcript'] = snps_loops.apply(lambda x: (intersect_intervals([x[f"{x['second_anchor']}1"], x[f"{x['second_anchor']}2"]], [x['start'], x['end']])) & (x['chr']==x['chr1' if x['second_anchor']=='x' else 'chr2']), axis=1)
-    snps_loops = snps_loops[snps_loops['intersection_with_transcript'] != False]
-    snps_loops = rare_enriched_promoter_snps_gene.merge(snps_loops[['CHROM', 'prom_start', 'prom_end', 'contacting transcript']], on=['CHROM', 'prom_start', 'prom_end'], how='left').fillna('.')
+    anchor_bed = anchors[['chr1', 'anchor_start', 'anchor_end']]
+    anchor_bed.to_csv(OUTPUT+'/anchor_intermediate_result.bed', sep='\t', header=False, index=False)
 
-    rare_enriched_enhancer_snps_gene_closest_contacts = snps_loops[list(rare_enriched_promoter_snps_gene.columns) + ['contacting transcript']]
-    return rare_enriched_enhancer_snps_gene_closest_contacts
+    genes_bed = genes_info[['chr', 'start', 'end']]
+    genes_bed.to_csv(OUTPUT+'/genes_intermediate_result.bed', sep='\t', header=False, index=False)
+
+
+    # Create BedTool objects
+    promoter = pbt.BedTool(OUTPUT+'/promoter_intermediate_result.bed')
+    anchor = pbt.BedTool(OUTPUT+'/anchor_intermediate_result.bed')
+    transcripts = pbt.BedTool(OUTPUT+'/genes_intermediate_result.bed')
+
+    # Intersect anchor with promoter
+    anchor_promoter_intersection = anchor.intersect(promoter, wa=True, wb=True)
+
+    # Intersect anchor with transcripts
+    anchor_transcripts_intersection = anchor.intersect(transcripts, wa=True, wb=True)
+
+    # Convert the intersections to DataFrames
+    anchor_promoter_df = anchor_promoter_intersection.to_dataframe(names=['chr1', 'anchor_start', 'anchor_end', 'CHROM', 'prom_start', 'prom_end'])
+    anchor_transcripts_df = anchor_transcripts_intersection.to_dataframe(names=['chr1', 'anchor_start', 'anchor_end', 'chr', 'transcript_start', 'transcript_end'])
+
+    ll_prom = looplist.merge(anchor_promoter_df, right_on=['chr1', 'anchor_start', 'anchor_end'],left_on=['chr1', 'x1', 'x2'], how='left', suffixes=('', '_left'))
+    ll_prom = ll_prom.merge(anchor_promoter_df, right_on=['chr1', 'anchor_start', 'anchor_end'],left_on=['chr2', 'y1', 'y2'], how='left', suffixes=('', '_right'))
+    ll_prom = ll_prom[ll_prom['CHROM'].notna() | ll_prom['CHROM_right'].notna()]
+
+    ll_prom_transc = ll_prom.merge(anchor_transcripts_df, right_on=['chr1', 'anchor_start', 'anchor_end'],left_on=['chr1', 'x1', 'x2'], how='left', suffixes=('', '_left'))
+    ll_prom_transc = ll_prom_transc.merge(anchor_transcripts_df, right_on=['chr1', 'anchor_start', 'anchor_end'],left_on=['chr2', 'y1', 'y2'], how='left', suffixes=('', '_right'))
+    ll_prom_transc = ll_prom_transc[ll_prom_transc['chr'].notna() | ll_prom_transc['chr_right'].notna()]
+
+    col_to_drop = [col for col in ll_prom_transc.columns if 'anchor' in col]
+    ll_prom_transc = ll_prom_transc.drop(columns=col_to_drop)
+
+    ll_prom_transc_left_right = ll_prom_transc[(ll_prom_transc['prom_start'].notna() & ll_prom_transc['transcript_start_right'].notna())]
+    ll_prom_transc_left_right = ll_prom_transc_left_right[['chr1', 'prom_start', 'prom_end', 'chr2', 'transcript_start_right', 'transcript_end_right']]
+    ll_prom_transc_left_right = ll_prom_transc_left_right.rename(columns={'transcript_start_right': 'transcript_start', 'transcript_end_right': 'transcript_end','chr1':'prom_chr','chr2':'transcript_chr'})
+    ll_prom_transc_right_left = ll_prom_transc[(ll_prom_transc['prom_start_right'].notna() & ll_prom_transc['transcript_start'].notna())]
+    ll_prom_transc_right_left = ll_prom_transc_right_left[['chr2', 'prom_start_right', 'prom_end_right', 'chr1', 'transcript_start', 'transcript_end']]
+    ll_prom_transc_right_left = ll_prom_transc_right_left.rename(columns={'prom_start_right': 'prom_start', 'prom_end_right': 'prom_end','chr2':'prom_chr','chr1':'transcript_chr'})  
+    found_pairs = pd.concat([ll_prom_transc_left_right, ll_prom_transc_right_left], ignore_index=True)
+    found_pairs = found_pairs.drop_duplicates()
+
+    found_pairs = found_pairs.merge(genes_info[['chr', 'start','end','Transcript']], left_on=['transcript_chr', 'transcript_start', 'transcript_end'], right_on=['chr', 'start', 'end'], how='left')
+    found_pairs = found_pairs.rename(columns={'Transcript':'contacting_transcript'})
+
+    rare_enriched_promoter_snps_gene_chromatin = rare_enriched_promoter_snps_gene.merge(found_pairs[['prom_chr','prom_start','prom_end','contacting_transcript']], left_on=['CHROM', 'prom_start','prom_end'], right_on=['prom_chr', 'prom_start','prom_end'], how='inner')
+    rare_enriched_promoter_snps_gene_chromatin = rare_enriched_promoter_snps_gene_chromatin.drop(columns=['prom_chr','Transcript'])
+    rare_enriched_promoter_snps_gene_chromatin = rare_enriched_promoter_snps_gene_chromatin.rename(columns={'contacting_transcript':'Transcript'})
+    rare_enriched_promoter_snps_gene_chromatin['relation'] = 'contacting'
+    rare_enriched_promoter_snps_gene_final = pd.concat([rare_enriched_promoter_snps_gene, rare_enriched_promoter_snps_gene_chromatin], ignore_index=True)
+    return rare_enriched_promoter_snps_gene_final
 
 def find_transcript(row, genes_info):
     if row["Gene"] == '.':
@@ -506,10 +638,13 @@ def find_transcript(row, genes_info):
             row['Transcript'] = transcript
             result = pd.concat([result, pd.DataFrame([row])], ignore_index=True)
             return result
+    else:
+        row['Transcript'] = '.'
+        return pd.DataFrame([row])
+
 
 # assign genes to snps which are located inside intronic enhancers 
 def assign_genes_intronic_enhancer_snps(rare_enriched_enhancer_snps_df, ENHANCER_REGIONS, genes_info):
-    
     enh_genes = pd.read_csv(ENHANCER_REGIONS, sep='\t', names=['chr', 'start', 'end', 'Gene'])
 
     # reformat to have one gene ID in cell
@@ -555,41 +690,8 @@ def assign_genes_intronic_enhancer_snps(rare_enriched_enhancer_snps_df, ENHANCER
     rare_enriched_enhancer_snps_gene = pd.merge(rare_enriched_enhancer_snps_df.drop(columns=["POS-1"]),
                                                 rare_enriched_enhancer_snps_gene[["CHROM", "POS","enh_start", "enh_end","Transcript","genomic element"]], 
                                                 on=["CHROM", "POS"], how='inner')
-
     return rare_enriched_enhancer_snps_gene
 
-
-def find_tss(row):
-    if row['strand'] == '+':
-        return row['start']
-    else:
-        return row['end']
-
-
-def prepare_genes_info(GENES_INFO):
-    rows_to_skip = 0
-    with open(GENES_INFO) as f:
-        for line in f:
-            if "#" in line:
-                rows_to_skip += 1
-            else:
-                break
-
-    full_annot = pd.read_csv(GENES_INFO, sep='\t', skiprows=rows_to_skip, usecols=[0, 2, 3, 4, 6, 8], 
-                            names = ["chr", "type", "start", "end", "strand", 'info'])
-    genes_info = full_annot[full_annot["type"] == "transcript"]
-    #reformat genes_info['info'] to dictionary
-    dict_series = genes_info['info'].str.split(';')
-    #choose nonempty elements
-    dict_series = pd.Series([[el for el in row if len(el) > 1] for row in dict_series])
-    genes_info['info'] = dict_series.apply(lambda x: dict([el.split(' ')[-2:] for el in x]))
-    genes_info['info'] = genes_info['info'].apply(lambda x: {k: v.strip('"') for k, v in x.items()})
-    genes_info['ID'] = genes_info['info'].apply(lambda x: x['transcript_id'])
-    genes_info['Transcript'] = genes_info['info'].apply(lambda x: x['transcript_id']+'/'+x['gene_name'])
-    genes_info['Gene_name'] = genes_info['info'].apply(lambda x: x['gene_name'])
-    genes_info["tss"] = genes_info.apply(find_tss, axis=1)
-    genes_info = genes_info.drop(columns=['type'])
-    return genes_info
 
 # assign genes to enhancers based on distance, save all in case of tie
 def assign_closest_gene_to_enhancers(rare_enriched_enhancer_snps_gene, genes_info):
@@ -600,8 +702,8 @@ def assign_closest_gene_to_enhancers(rare_enriched_enhancer_snps_gene, genes_inf
 
     tss_closest_to_enh = enhancers_bed.closest(genes_info_tss_bed_sorted, t='all', d=True)
     tss_closest_to_enh_df = tss_closest_to_enh.to_dataframe(
-        names=['CHROM', 'enh_start', 'enh_end', "closest transcript", "distance to closest transcript"],
-        usecols=[0, 1, 2, 6, 7])
+        names=['CHROM', 'enh_start', 'enh_end', "closest transcript"],
+        usecols=[0, 1, 2, 6])
     
     rare_enriched_enhancer_snps_gene_closest = pd.merge(rare_enriched_enhancer_snps_gene,
                                                               tss_closest_to_enh_df, how="left",
@@ -622,89 +724,117 @@ def intersect_intervals(interval1, interval2):
 
     
 # assign contacting transcripts using chromatin loops list
-def assign_chromatin_contacting_gene_to_enhancer_with_loops(rare_enriched_enhancer_snps_gene_closest, TRANSCRIPTS_REGIONS, CHROMATIN_LOOPS):
-    transcripts = pd.read_csv(TRANSCRIPTS_REGIONS, sep='\t',header=None)
-    transcripts.rename(columns={0:'chr', 1:'start', 2:'end', 3:'contacting transcript'}, inplace=True)
+def assign_chromatin_contacting_gene_to_enhancer_with_loops(snps, genes_info, CHROMATIN_LOOPS, OUTPUT):
+    genes_info = genes_info.rename(columns={'Transcript':'contacting transcript'})
     looplist = pd.read_csv(CHROMATIN_LOOPS, sep='\t')
+        
     assert all(column in looplist.columns for column in ['chr1', 'x1', 'x2', 'chr2', 'y1', 'y2']) , 'Columns in looplist are not correct'
+    # add prefix 'chr' to chromosome names if missing
     if looplist['chr1'][0][:3] != 'chr':
         looplist['chr1'] = looplist['chr1'].apply(lambda x: 'chr'+x)
         looplist['chr2'] = looplist['chr2'].apply(lambda x: 'chr'+x)
     looplist = looplist[['chr1', 'x1', 'x2', 'chr2', 'y1', 'y2']].copy()
-    
+
+    snps_enh = snps[snps.columns.difference(['Transcript','relation']).tolist()].drop_duplicates()
+    anchors = pd.concat([looplist[['chr1', 'x1', 'x2']].rename(columns={'x1':'anchor_start', 'x2':'anchor_end'}), looplist[['chr2', 'y1', 'y2']].rename(columns={'chr2':'chr1', 'y1':'anchor_start', 'y2':'anchor_end'})], ignore_index=True)
+    anchors = anchors.drop_duplicates()
+
     # find enhancers which are in contact with transcript
     # it means that there is loop which one anchor intersects with enhancer and second with transcript
 
-    # merge with rows where at least one chromosome is the same
-    snps_loops1 = rare_enriched_enhancer_snps_gene_closest.merge(looplist, left_on='CHROM', right_on='chr1', how='inner')
-    snps_loops2 = rare_enriched_enhancer_snps_gene_closest.merge(looplist, left_on='CHROM', right_on='chr2', how='inner')
-    snps_loops = pd.concat([snps_loops1, snps_loops2], ignore_index=True).drop_duplicates()
-    
-    # intersect enhancer with loop
-    snps_loops['intersection_with_x'] = snps_loops.apply(lambda x: (intersect_intervals([x['enh_start'], x['enh_end']], [x['x1'], x['x2']])) & (x['chr1']==x['CHROM']), axis=1)
-    snps_loops['intersection_with_y'] = snps_loops.apply(lambda x: (intersect_intervals([x['enh_start'], x['enh_end']], [x['y1'], x['y2']])) & (x['chr2']==x['CHROM']), axis=1)
-    snps_loops = snps_loops[(snps_loops['intersection_with_x'] != False) | (snps_loops['intersection_with_y'] != False)]
+    # Convert the DataFrame to BED format and save it as a file
+    enhoter_bed = snps_enh[['CHROM', 'enh_start', 'enh_end']]
+    enhoter_bed.to_csv(OUTPUT+'/enhancer_intermediate_result.bed', sep='\t', header=False, index=False)
 
-    # intersect transcript with loop
-    snps_loops['second_anchor'] = snps_loops.apply(lambda x: 'y' if x['intersection_with_x'] != False else 'x', axis=1)
-    snps_loops = snps_loops.merge(transcripts, left_on='CHROM', right_on='chr', how='inner')
-    snps_loops['intersection_with_transcript'] = snps_loops.apply(lambda x: (intersect_intervals([x[f"{x['second_anchor']}1"], x[f"{x['second_anchor']}2"]], [x['start'], x['end']])) & (x['chr']==x['chr1' if x['second_anchor']=='x' else 'chr2']), axis=1)
-    snps_loops = snps_loops[snps_loops['intersection_with_transcript'] != False]
-    snps_loops = rare_enriched_enhancer_snps_gene_closest.merge(snps_loops[['CHROM', 'enh_start', 'enh_end', 'contacting transcript']], on=['CHROM', 'enh_start', 'enh_end'], how='left').fillna('.')
+    anchor_bed = anchors[['chr1', 'anchor_start', 'anchor_end']]
+    anchor_bed.to_csv(OUTPUT+'/anchor_intermediate_result.bed', sep='\t', header=False, index=False)
 
-    rare_enriched_enhancer_snps_gene_closest_contacts = snps_loops[list(rare_enriched_enhancer_snps_gene_closest.columns) + ['contacting transcript']]
-    return rare_enriched_enhancer_snps_gene_closest_contacts
+    genes_bed = genes_info[['chr', 'start', 'end']]
+    genes_bed.to_csv(OUTPUT+'/genes_intermediate_result.bed', sep='\t', header=False, index=False)
 
+
+    # Create BedTool objects
+    enhancer = pbt.BedTool(OUTPUT+'/enhancer_intermediate_result.bed')
+    anchor = pbt.BedTool(OUTPUT+'/anchor_intermediate_result.bed')
+    transcripts = pbt.BedTool(OUTPUT+'/genes_intermediate_result.bed')
+
+    # Intersect anchor with enhancer
+    anchor_enhancer_intersection = anchor.intersect(enhancer, wa=True, wb=True)
+
+    # Intersect anchor with transcripts
+    anchor_transcripts_intersection = anchor.intersect(transcripts, wa=True, wb=True)
+
+    # Convert the intersections to DataFrames
+    anchor_enhancer_df = anchor_enhancer_intersection.to_dataframe(names=['chr1', 'anchor_start', 'anchor_end', 'CHROM', 'enh_start', 'enh_end'])
+    anchor_transcripts_df = anchor_transcripts_intersection.to_dataframe(names=['chr1', 'anchor_start', 'anchor_end', 'chr', 'transcript_start', 'transcript_end'])
+
+    ll_enh = looplist.merge(anchor_enhancer_df, right_on=['chr1', 'anchor_start', 'anchor_end'],left_on=['chr1', 'x1', 'x2'], how='left', suffixes=('', '_left'))
+    ll_enh = ll_enh.merge(anchor_enhancer_df, right_on=['chr1', 'anchor_start', 'anchor_end'],left_on=['chr2', 'y1', 'y2'], how='left', suffixes=('', '_right'))
+    ll_enh = ll_enh[ll_enh['CHROM'].notna() | ll_enh['CHROM_right'].notna()]
+
+    ll_enh_transc = ll_enh.merge(anchor_transcripts_df, right_on=['chr1', 'anchor_start', 'anchor_end'],left_on=['chr1', 'x1', 'x2'], how='left', suffixes=('', '_left'))
+    ll_enh_transc = ll_enh_transc.merge(anchor_transcripts_df, right_on=['chr1', 'anchor_start', 'anchor_end'],left_on=['chr2', 'y1', 'y2'], how='left', suffixes=('', '_right'))
+    ll_enh_transc = ll_enh_transc[ll_enh_transc['chr'].notna() | ll_enh_transc['chr_right'].notna()]
+
+    col_to_drop = [col for col in ll_enh_transc.columns if 'anchor' in col]
+    ll_enh_transc = ll_enh_transc.drop(columns=col_to_drop)
+
+    ll_enh_transc_left_right = ll_enh_transc[(ll_enh_transc['enh_start'].notna() & ll_enh_transc['transcript_start_right'].notna())]
+    ll_enh_transc_left_right = ll_enh_transc_left_right[['chr1', 'enh_start', 'enh_end', 'chr2', 'transcript_start_right', 'transcript_end_right']]
+    ll_enh_transc_left_right = ll_enh_transc_left_right.rename(columns={'transcript_start_right': 'transcript_start', 'transcript_end_right': 'transcript_end','chr1':'enh_chr','chr2':'transcript_chr'})
+    ll_enh_transc_right_left = ll_enh_transc[(ll_enh_transc['enh_start_right'].notna() & ll_enh_transc['transcript_start'].notna())]
+    ll_enh_transc_right_left = ll_enh_transc_right_left[['chr2', 'enh_start_right', 'enh_end_right', 'chr1', 'transcript_start', 'transcript_end']]
+    ll_enh_transc_right_left = ll_enh_transc_right_left.rename(columns={'enh_start_right': 'enh_start', 'enh_end_right': 'enh_end','chr2':'enh_chr','chr1':'transcript_chr'})  
+    found_pairs = pd.concat([ll_enh_transc_left_right, ll_enh_transc_right_left], ignore_index=True)
+    found_pairs = found_pairs.drop_duplicates()
+
+    found_pairs = found_pairs.merge(genes_info[['chr', 'start','end','contacting transcript']], left_on=['transcript_chr', 'transcript_start', 'transcript_end'], right_on=['chr', 'start', 'end'], how='left')
+
+    snps_chromatin = snps.merge(found_pairs[['enh_chr','enh_start','enh_end','contacting transcript']], left_on=['CHROM', 'enh_start','enh_end'], right_on=['enh_chr', 'enh_start','enh_end'], how='left').fillna('.')
+    snps_chromatin = snps_chromatin.drop(columns=['enh_chr'])
+
+    return snps_chromatin
 
 # collect putative genes in one column named 'Genes'
 def reformat_target_genes_enh(rare_enriched_enhancer_snps_gene_closest_contacts, genes_info):
-    genes_info = pd.DataFrame(genes_info['info'].tolist())
-
+    genes_info['transcript_id'] = genes_info['transcript_id'].apply(lambda x: x.split('/')[0])
     rare_enriched_enhancer_snps_gene_closest_contacts['Transcript'] = rare_enriched_enhancer_snps_gene_closest_contacts['Transcript'].apply(lambda x: x+'(containing)' if x!='.' else x)
     rare_enriched_enhancer_snps_gene_closest_contacts['closest transcript'] = rare_enriched_enhancer_snps_gene_closest_contacts['closest transcript'].apply(lambda x: x+'(closest)' if x!='.' else x)
     rare_enriched_enhancer_snps_gene_closest_contacts['contacting transcript'] = rare_enriched_enhancer_snps_gene_closest_contacts['contacting transcript'].apply(lambda x: x+'(contacting)' if x!='.' else x)
-
     new_table=pd.DataFrame()
     for index, row in rare_enriched_enhancer_snps_gene_closest_contacts.iterrows():
         transcripts = [i for i in row[['Transcript','closest transcript','contacting transcript']] if i!='.']
         for transcript in transcripts:
             new_row = row.copy()
-            new_row = new_row.drop(columns=['Transcript','closest transcript','contacting transcript'])
+            new_row = new_row.drop(['Transcript', 'closest transcript', 'contacting transcript'])
+
             new_row['relation'] = transcript.split('(')[1].split(')')[0]
             new_row['Transcript'] = transcript.split('(')[0]
             new_row['Gene'] = new_row['Transcript'].split('/')[1]
             new_row['Transcript'] = new_row['Transcript'].split('/')[0]
-            new_row['Gene_ID'] = genes_info[genes_info['transcript_id'] == new_row['Transcript']]['gene_id'].values[0]
+            new_row['Gene_ID'] = genes_info[genes_info['transcript_id'] == new_row['Transcript']]['Gene_ID'].values[0]
 
             new_table = pd.concat([new_table, pd.DataFrame([new_row])], ignore_index=True)
+    new_table.drop_duplicates(inplace=True)
     new_table = new_table.groupby(new_table.columns.difference(['relation']).tolist(), as_index=False).agg({'relation': ';'.join})
+    new_table['relation'] = new_table['relation'].apply(lambda x: ';'.join(list(set(x.split(';')))))
     print('Done: assigning putative genes to enhancers')
     return new_table
 
 
 def change_table_format_promoter(promoter_snps,genes_info):
-    genes_info = pd.DataFrame(genes_info['info'].tolist())
+    genes_info['transcript_id'] = genes_info['Transcript'].apply(lambda x: x.split('/')[0])
 
-    promoter_snps['Transcript'] = promoter_snps['Transcript'].apply(lambda x: x+'(containing)' if x!='.' else x)
-    promoter_snps['contacting transcript'] = promoter_snps['contacting transcript'].apply(lambda x: x+'(contacting)' if x!='.' else x)
-
-    new_promoter_snps = pd.DataFrame()
-    for index,row in promoter_snps.iterrows():
-        for transcript in [i for i in row[['Transcript','contacting transcript']] if i!='.']:
-            new_row = row.copy()
-            new_row = new_row.drop(columns=['Transcript','contacting transcript'])
-            new_row['relation'] = transcript.split('(')[1].split(')')[0]
-            new_row['Transcript'] = transcript.split('(')[0]
-            new_row['Gene'] = new_row['Transcript'].split('/')[1]
-            new_row['Transcript'] = new_row['Transcript'].split('/')[0]
-            new_row['Gene_ID'] = genes_info[genes_info['transcript_id'] == new_row['Transcript']]['gene_id'].values[0]
-            new_promoter_snps = pd.concat([new_promoter_snps, pd.DataFrame([new_row])], ignore_index=True)
-    new_promoter_snps = new_promoter_snps.groupby(new_promoter_snps.columns.difference(['relation']).tolist(), as_index=False).agg({'relation': ';'.join})
-    return new_promoter_snps
+    promoter_snps['Gene'] = promoter_snps['Transcript'].apply(lambda x:x.split('/')[1])
+    promoter_snps['Transcript'] = promoter_snps['Transcript'].apply(lambda x:x.split('/')[0])
+    promoter_snps['Gene_ID'] = promoter_snps.apply(lambda x:genes_info[genes_info['transcript_id'] == x['Transcript']]['Gene_ID'].values[0], axis=1)
+    promoter_snps = promoter_snps.groupby(promoter_snps.columns.difference(['relation']).tolist(), as_index=False).agg({'relation': ';'.join})
+    promoter_snps['relation'] = promoter_snps['relation'].apply(lambda x: ';'.join(list(set(x.split(';')))))
+    return promoter_snps
 
 # Calculate correlation between enhancer activity and gene expression
-# for each gene find best correlating transcript and save it if pval<0.15
-def calculate_correlation_enh_gene(row, sample_names, counts):
+# for each gene find best correlating transcript and save it if pval<threshold
+def calculate_correlation_enh_gene(row, sample_names, counts, threshold):
     enh_act_vector = row[sample_names].values
     transcript = row['Transcript']
 
@@ -719,17 +849,17 @@ def calculate_correlation_enh_gene(row, sample_names, counts):
         if np.std(enh_act_vector) > 0.05 and np.std(expr_vector) > 0.05:
             rho, pval = spearmanr(enh_act_vector, expr_vector)
 
-            if str(rho) != 'nan' and rho > 0 and pval < 0.15:
+            if str(rho) != 'nan' and rho > 0 and pval < threshold:
                 return round(pval,3)
             
     elif len(gene_expr_rows) > 1:
-        print('transcript id in gene expression data is not unique: ',transcript)
+        print('Transcript id in gene expression data is not unique: ',transcript)
     
     return "."
 
 
 def check_signal_gene_expression_correlation_enhancer(rare_enriched_enhancer_snps_genes_collected,
-                                                      ENHANCER_ACTIVITY, GENE_EXPRESSION):
+                                                      ENHANCER_ACTIVITY, GENE_EXPRESSION, threshold):
     h3k27ac_cov = pd.read_csv(ENHANCER_ACTIVITY, sep="\t")
     h3k27ac_cov = h3k27ac_cov.rename(columns={"chr": "CHROM",
                                               "start": "enh_start",
@@ -743,7 +873,7 @@ def check_signal_gene_expression_correlation_enhancer(rare_enriched_enhancer_snp
     samples = h3k27ac_cov.columns.drop(["CHROM", "enh_start", "enh_end"])
     rare_enriched_enhancer_snps_genes_collected_coverage[
         "H3K27ac-expression correlation p-values"] = rare_enriched_enhancer_snps_genes_collected_coverage.apply(
-        calculate_correlation_enh_gene, args=(samples, counts), axis=1)
+        calculate_correlation_enh_gene, args=(samples, counts, threshold), axis=1)
     rare_enriched_enhancer_snps_genes_collected_corelations = rare_enriched_enhancer_snps_genes_collected_coverage.drop(
         labels=samples, axis=1)
     rare_enriched_enhancer_snps_genes_collected_corelations = rare_enriched_enhancer_snps_genes_collected_corelations[rare_enriched_enhancer_snps_genes_collected_corelations["H3K27ac-expression correlation p-values"] != "."].copy()
@@ -889,10 +1019,8 @@ def check_genotype_signal_correlation(enhancer_snps, promoter_snps, ENHANCER_ACT
     return enhancer_snps, promoter_snps
 
 
-def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHANCER_ACTIVITY,PROMOTER_ACTIVITY,threshold = 0.15):
+def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHANCER_ACTIVITY,PROMOTER_ACTIVITY,threshold):
     # select significant results
-    promoter_snps.to_csv('sth_to_check.csv')
-
     enhancer_snps = enhancer_snps[(enhancer_snps['genotype_act_corr_pval'] != '.') | (enhancer_snps['gene_expr_correlations_pval'] != '.')].copy()
     promoter_snps = promoter_snps[(promoter_snps['genotype_act_corr_pval'] != '.') | (promoter_snps['gene_expr_correlations_pval'] != '.')].copy()
 
@@ -929,7 +1057,7 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
     promoter_snps = promoter_snps.drop_duplicates()
 
     #save plots to one pdf file
-    with PdfPages(OUTPUT+'/plots.pdf') as pdf:  
+    with PdfPages(OUTPUT+'/regulatory_snps_plots.pdf') as pdf:  
         for index, row in enhancer_snps.iterrows():
             if (row['gene_expr_correlations_pval'] != '.') & (row['genotype_act_corr_pval'] != '.'):
                 # plots for enhancers
@@ -1120,53 +1248,60 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
     cols_to_drop_prom = cols_to_drop_prom + [col for col in promoter_snps.columns if ('all_snps' in col) or ('Unnamed' in col)]
     enhancer_snps = enhancer_snps.drop(columns = cols_to_drop_enh)
     promoter_snps = promoter_snps.drop(columns = cols_to_drop_prom)
-    enhancer_snps = enhancer_snps.drop_duplicates()
-    promoter_snps = promoter_snps.drop_duplicates()
 
     #format columns
     enhancer_snps = enhancer_snps.rename(columns = {'genotype_act_corr_pval' : 'p-value_for_correlation_genotype_vs_h3k27ac',
                                                     'gene_expr_correlations_pval':'p-value_for_correlation_genotype_vs_expression',
                                                     'H3K27ac-expression correlation p-values':'p-value_for_correlation_expression_vs_h3k27ac',
-                                                    'Gene':'Gene_name'})
+                                                    'Gene':'Gene_name', 'binom_pval': 'p-value_for_binomial_test', 
+                                                    'corrected_binom_pval': 'corrected_p-value_for_binomial_test'})
     
     promoter_snps = promoter_snps.rename(columns = {'genotype_act_corr_pval' : 'p-value_for_correlation_genotype_vs_h3k27ac',
                                                     'gene_expr_correlations_pval':'p-value_for_correlation_genotype_vs_expression',
-                                                    'Gene':'Gene_name'})
+                                                    'Gene':'Gene_name', 'binom_pval': 'p-value_for_binomial_test', 
+                                                    'corrected_binom_pval': 'corrected_p-value_for_binomial_test'})
 
 
     # change columns order
     gnomad_cols = [col for col in enhancer_snps if 'gnomAD' in col]
     motif_cols = ['motif_best_match','motif_highest_diff'] if 'motif_best_match' in enhancer_snps.columns else []
-    cols_order_enh = ['CHROM','POS','REF','ALT','AC','AF','AN','Num homref','Num het','Num homalt']+gnomad_cols+['binom_pval','corrected_binom_pval','genomic element','Gene_name','Gene_ID','Transcript','relation']+ [col for col in enhancer_snps.columns if ('p-value' in col)]+motif_cols
+    cols_order_enh = ['CHROM','POS','REF','ALT','AC','AF','AN','Num homref','Num het','Num homalt']+gnomad_cols+['genomic element','Gene_name','Gene_ID','Transcript','relation']+ [col for col in enhancer_snps.columns if ('p-value' in col)]+motif_cols
     enhancer_snps = enhancer_snps.reindex(columns=cols_order_enh)   
 
-    cols_order_prom = ['CHROM','POS','REF','ALT','AC','AF','AN','Num homref','Num het','Num homalt']+gnomad_cols+['binom_pval','corrected_binom_pval','genomic element','Gene_name','Gene_ID','Transcript','relation']+ [col for col in promoter_snps.columns if ('p-value' in col)]+motif_cols
+    cols_order_prom = ['CHROM','POS','REF','ALT','AC','AF','AN','Num homref','Num het','Num homalt']+gnomad_cols+['genomic element','Gene_name','Gene_ID','Transcript','relation']+ [col for col in promoter_snps.columns if ('p-value' in col)]+motif_cols
     promoter_snps = promoter_snps.reindex(columns=cols_order_prom)
     promoter_snps['p-value_for_correlation_expression_vs_h3k27ac'] = '.'
     promoter_snps.reset_index(drop=True, inplace=True)
     enhancer_snps.reset_index(drop=True, inplace=True)
+    enhancer_snps = enhancer_snps.drop_duplicates()
+    promoter_snps = promoter_snps.drop_duplicates()
     found_snps = pd.concat([enhancer_snps, promoter_snps], ignore_index=True)
 
     #saving results to csv
     enhancer_snps.to_csv(OUTPUT+'/final_regulatory_snps_enhancer.csv')
     promoter_snps.to_csv(OUTPUT+'/final_regulatory_snps_promoter.csv')
     found_snps.to_csv(OUTPUT+'/final_regulatory_snps.csv')
-    print('Found regulatory variants are saved in files:\n', OUTPUT+'/final_regulatory_snps_enhancer.csv\n', OUTPUT+'/final_regulatory_snps_promoter.csv\n', 'Plots are saved in file:', OUTPUT+'/plots.pdf')
+    print('Found regulatory variants are saved in files:\n', OUTPUT+'/final_regulatory_snps_enhancer.csv\n', OUTPUT+'/final_regulatory_snps_promoter.csv\n', 'Plots are saved in file:', OUTPUT+'/regulatory_snps_plots.pdf')
 
 
 def save_limited_results(promoter_snps, enhancer_snps, OUTPUT):
     # format columns
     gnomad_cols = [col for col in enhancer_snps if 'gnomAD' in col]
-    pval_cols = [col for col in enhancer_snps if 'p-value' in col]
+    pval_cols = [col for col in enhancer_snps if 'pval' in col]
     motif_cols = ['motif_best_match','motif_highest_diff'] if 'motif_best_match' in enhancer_snps.columns else []
-    enhancer_snps = enhancer_snps[['CHROM','POS','REF','ALT','AC','AF','AN']+gnomad_cols+['binom_pval','corrected_binom_pval','genomic element','Transcript','Gene','Gene_ID','relation']+pval_cols+motif_cols]
-    promoter_snps = promoter_snps[['CHROM','POS','REF','ALT','AC','AF','AN']+gnomad_cols+['binom_pval','corrected_binom_pval','Gene','Gene_ID']+motif_cols]
-    enhancer_snps = enhancer_snps.rename(columns = {'Gene':'Gene_name'})
-    promoter_snps = promoter_snps.rename(columns = {'Gene':'Gene_name'})
+    enhancer_snps = enhancer_snps[['CHROM','POS','REF','ALT','AC','AF','AN']+gnomad_cols+['genomic element','Transcript','Gene','Gene_ID','relation']+pval_cols+motif_cols]
+    promoter_snps = promoter_snps[['CHROM','POS','REF','ALT','AC','AF','AN']+gnomad_cols+['genomic element','Transcript','Gene','Gene_ID','relation']+pval_cols+motif_cols]
+    enhancer_snps = enhancer_snps.rename(columns = {'Gene':'Gene_name', 'binom_pval': 'p-value_for_binomial_test', 'corrected_binom_pval': 'corrected_p-value_for_binomial_test'})
+    promoter_snps = promoter_snps.rename(columns = {'Gene':'Gene_name', 'binom_pval': 'p-value_for_binomial_test', 'corrected_binom_pval': 'corrected_p-value_for_binomial_test'})
 
-    #save results to csv
+    promoter_snps.reset_index(drop=True, inplace=True)
+    enhancer_snps.reset_index(drop=True, inplace=True)
     enhancer_snps = enhancer_snps.drop_duplicates()
     promoter_snps = promoter_snps.drop_duplicates()
+    found_snps = pd.concat([enhancer_snps, promoter_snps], ignore_index=True)
+
+    #save results to csv
     enhancer_snps.to_csv(OUTPUT+'/limited_final_regulatory_snps_enhancer.csv')
     promoter_snps.to_csv(OUTPUT+'/limited_final_regulatory_snps_promoter.csv')
-    print('Found regulatory variants are saved in files:\n', OUTPUT+'/limited_final_regulatory_snps_enhancer.csv\n', OUTPUT+'/limited_final_regulatory_snps_promoter.csv\n')
+    found_snps.to_csv(OUTPUT+'/limited_final_regulatory_snps.csv')
+    print('Found regulatory variants are saved in files:\n', OUTPUT+'/limited_final_regulatory_snps_enhancer.csv\n', OUTPUT+'/limited_final_regulatory_snps_promoter.csv\n', OUTPUT+'/limited_final_regulatory_snps.csv')
