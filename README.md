@@ -29,7 +29,7 @@ The successive steps in the analysis are as follows:
 - Selection of variants that are located in regulatory regions and are biallelic.
 - Assignment of variant frequency in the population and filtering based on this value. This is done using ANNOVAR.
 - Performing a binomial test - selecting variants that are significantly more often (or rarely) present in the studied group than in the population. Benjamin-Hochberg correction is applied.
-- Selecting SNPs which are present inside motif and have atrong effect on it.
+- Selecting SNPs which are present inside motif and have strong effect on it.
 - Assignment of transcripts to promoters and intronic enhancers.
 - Assignment of transcripts to enhancers: the closest ones and those in chromatin contact.
 - Determination of correlation between enhancer activity (h3k27ac signal) and gene expression.
