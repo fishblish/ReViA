@@ -147,7 +147,7 @@ fm.count_variants(GATK, INPUT_VCF)
 
 #select biallelic variants located inside regulatory regions
 biallelic_variants_in_regulatory_regions_path = fm.select_biallelic_inside_regulatory_regions(GATK, INPUT_VCF, promoter_regions, PROMOTER_REGIONS_BED_PATH, ENHANCER_REGIONS, OUTPUT)
-'''
+
 #found variants that are enriched in analyzed cohort
 annotated_variants_path = fm.annotate_freq(biallelic_variants_in_regulatory_regions_path, ANNOVAR, genome_version)
 
@@ -157,11 +157,6 @@ filtered_by_freq_variants_file = fm.select_snps_by_freq(annotated_variants_path,
 #select enriched snps
 enriched_promoter_snps_df, enriched_enhancer_snps_df = fm.select_enriched_snps(filtered_by_freq_variants_file, GATK, bh_alpha=bh_alpha, target=freq_filter_target, reference_population=reference_population)
 
-enriched_enhancer_snps_df.to_csv(OUTPUT + '/enriched_enhancer_snps.csv')
-enriched_promoter_snps_df.to_csv(OUTPUT + '/enriched_promoter_snps.csv')
-'''
-enriched_enhancer_snps_df = pd.read_csv(OUTPUT + '/enriched_enhancer_snps.csv')
-enriched_promoter_snps_df = pd.read_csv(OUTPUT + '/enriched_promoter_snps.csv')
 
 if motifs:
     #select SNPs in motifs
