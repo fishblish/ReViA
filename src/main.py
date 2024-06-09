@@ -15,53 +15,56 @@ print('Default input data will be taken from:', data_path)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--gatk_path", type=str, nargs='?', default= programs_path + \
-                    "/gatk/gatk-4.4.0.0/gatk", help="Path to directory containing GATK program.")
+                    "/gatk/gatk-4.4.0.0/gatk", help="Path to GATK program.")
 parser.add_argument("--annovar_path", type=str, nargs='?', default= programs_path + \
-                    "/annovar/", help="Path to directory containing ANNOVAR program.")
-parser.add_argument("--input_vcf", type=str, nargs='?', default= data_path + "/Symfonia_all.hard_filtered.selected.vcf.gz", \
-                    help="Path to directory containing input VCF file. It can be gzipped.")
-parser.add_argument("--enhancer_regions", type=str, nargs='?', default= data_path + "/brain_enhancers_active.bed", \
-                    help="Path to directory containing bed file with enhancer regions. It should contain this 3 columns: chr, start, end.\
-                        Last column should contain gene names if enhancer is located inside gene, \
-                        comma separated, '.' for intergenic enhancers = no gene overlaps.")
+                    "/annovar/", help="Path to ANNOVAR program.")
+parser.add_argument("--input_vcf", type=str, nargs='?', default= data_path + "/Symfonia_all.hard_filtered.selected.vcf.gz", 
+                    help="Path to input VCF file. It can be gzipped.")
+parser.add_argument("--enhancer_regions", type=str, nargs='?', default= data_path + "/brain_enhancers_active.bed", 
+                    help="Path to bed file with enhancer regions. First three columns should be 'chr', 'start', 'end'.")
 parser.add_argument("--promoter_range", type=int, nargs='?', default= 1000, help="Set range for promoter regions. Default is 1000 bp.")
-parser.add_argument("--active_promoters", type=str, nargs='?', default= data_path + "/active_promoters_20pts_1kbup_200bpdown_not_merged.bed", \
+parser.add_argument("--active_promoters", type=str, nargs='?', default= data_path + "/active_promoters_20pts_1kbup_200bpdown_not_merged.bed", 
                     help="Path to bed file with active promoters TSSs or transcript identifiers (ENST). If no path is provided, all promoters will be considered as active.")
-parser.add_argument("--active_promoters_input_type", type = str, choices=['TSS', 'ENST'], default='ENST', nargs='?', \
+parser.add_argument("--active_promoters_input_type", type = str, choices=['TSS', 'ENST'], default='ENST', nargs='?', 
                     help="Choose if you provide active promoters as TSSs or transcript identifiers (ENST)." )
-parser.add_argument("--output", type=str, nargs='?', default= "output", help="Name of directory to save outputs in.")
-parser.add_argument("--enhancer_activity", type=str, nargs='?', default= data_path + "/h3k27ac_coverage_quantile_normalized.csv", \
-                    help="Path to directory containing csv file with signal h3k27ac for enhancers. It should have columns 'chr', 'start', 'end' and sample names.")
+parser.add_argument("--output", type=str, nargs='?', default= "output", help="Name of directory to save outputs in. It can be absolute or relative path.\
+                    If it doesn't exist, it will be created. Default is 'output'.")
+parser.add_argument("--enhancer_activity", type=str, nargs='?', default= data_path + "/h3k27ac_coverage_quantile_normalized.csv", 
+                    help="Path to CSV file with signal h3k27ac for enhancers. It should have columns 'chr', 'start', 'end' and sample names and should be normalized between samples.")
 parser.add_argument("--promoter_activity", type=str, nargs='?', default= data_path + "/h3k27ac_promoters_normalized_cov_with_noise.csv", \
-                    help="Path to directory containing csv file with signal h3k27ac for promoters. It should have column 'Transcript' and sample names.")
+                    help="Path to CSV file with signal h3k27ac for promoters. It should have columns 'Transcript' and sample names and should be normalized between samples.")
 
-parser.add_argument("--gene_expression", type=str, nargs='?', default= data_path + "/transcrtpts_rnaseq_quantile_normalized.csv", \
-                    help="Path to directory containing csv file with gene expression. It should have column 'Transcript' with data in form transcipt/gene name.")
-parser.add_argument("--chromatin_loops", type=str, nargs='?', default= data_path + '/loop_lists/looplist_outside_promoters.txt.gz',help="Path to directory containing file with chromatin loops. It should have tab as separator.")
-parser.add_argument("--genes_info", type=str, nargs='?', default= data_path + '/hg38_genes_transcripts_info.tsv', \
-                    help="Path to directory containing file with information about genes.")
-parser.add_argument("--default_enhancers_genes_assignment",  type=str, nargs='?', \
-                    help="You can provide path to already assigned genes to enhancers. It should have columns: enh_start, enh_end, Gene, genomic element, H3K27ac-expression correlation p-values, relation.\
+parser.add_argument("--gene_expression", type=str, nargs='?', default= data_path + "/transcrtpts_rnaseq_quantile_normalized.csv", 
+                    help="Path to CSV file with gene expression. It should have column 'Transcript' with data in a form transcipt/gene name.\
+                        It should be normalized between samples.")
+parser.add_argument("--chromatin_loops", type=str, nargs='?', default= data_path + '/loop_lists/looplist_outside_promoters.txt.gz',
+                    help="Path to directory containing file with chromatin loops. It should have tab as separator.")
+parser.add_argument("--genes_info", type=str, nargs='?', default= data_path + '/hg38_genes_transcripts_info.csv', 
+                    help="Path to CSV file with information about genes.")
+parser.add_argument("--default_enhancers_genes_assignment",  type=str, nargs='?', 
+                    help="You can provide path to CSV file with already assigned genes to enhancers. \
+                        It should have columns: CHROM, enh_start, enh_end, Gene, genomic element, H3K27ac-expression correlation p-values, relation.\
                         If you won't provide path, genes will be assigned to enhancers during analysis.")
-# default='output/assigned_genes_to_enhancers.csv',
+#default='output/assigned_genes_to_enhancers.csv',
 
-parser.add_argument("--freq_filter_target", type=str, choices=['r', 'c'], default='r', nargs='?', \
+parser.add_argument("--freq_filter_target", type=str, choices=['r', 'c'], default='r', nargs='?', 
                     help="Choose 'r' (rare) or 'c' (common). It expresses if you want to select rare or common variants considering frequency in population")
-parser.add_argument("--freq_filter_cutoff", type=float, default=0.01, nargs='?', \
+parser.add_argument("--freq_filter_cutoff", type=float, default=0.01, nargs='?', 
                     help="Set cut-off point for frequency filter. It expresses how rare or how common variant you what to select (rare/common depends on freq_filter_target argument)")
-parser.add_argument("--population", type=str, nargs='*', choices=['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL'], default=['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL'],\
-                    help="Choose population which input data will be copared with from a list ['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL']. You can pass multiple arguments. If you won't pass any argument, whole population frequency will be used.")
-parser.add_argument("--freq_filter_missing", type=str, choices=['r', 'c'], default='r', nargs='?', \
+parser.add_argument("--population", type=str, nargs='*', choices=['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL'], default=['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL'],
+                    help="Choose population which input data will be copared with from a list ['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL']. \
+                        You can pass multiple arguments. If you won't pass any argument, whole population frequency will be used.")
+parser.add_argument("--freq_filter_missing", type=str, choices=['r', 'c'], default='r', nargs='?', 
                     help="Choose 'r' (rare) or 'c' (common). It expresses if you want to treat variant with missing frequency data as rare or common variant.")
-parser.add_argument("--reference_population", type=str, choices=['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL'], default='ALL', nargs='?', \
-                    help="Choose reference population for binomial test. It should be in population list: ['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL']. If you won't pass any argument, frequency from whole population will be used.")
-parser.add_argument("--bh_alpha", type=float, default=0.01, nargs='?', \
+parser.add_argument("--reference_population", type=str, choices=['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL'], default='ALL', nargs='?', 
+                    help="Choose reference population for binomial test. It should be in population list: ['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL']. \
+                        If you won't pass any argument, frequency from whole population will be used.")
+parser.add_argument("--bh_alpha", type=float, default=0.01, nargs='?', 
                     help="Set cut-off point for Benjamini-Hochberg correction.")
 parser.add_argument("--pval_threshold", type=float, default=0.15, nargs='?', help="Set cut-off point for p-value in correlation tests.")
-parser.add_argument("-limited_analysis", action='store_true', help="If you have only input vcf file, you can use this flag to run analysis without enhancer activity, gene expression.")
+parser.add_argument("-limited_analysis", action='store_true', help="If you have only input VCF file, you can use this flag to run analysis without enhancer activity, promoter activity and gene expression.")
 
-parser.add_argument("--motifs", action='store_false', help="If you want to search for motifs in enhancers and promoters.")
-parser.add_argument("--r_packages_path", type=str, nargs='?', default="/home/julia/miniconda3/lib/R/library/", help="Path to directory containing R packages: motifbreakR, BSgenome.Hsapiens.UCSC.hg38, MotifDb. Providing this path is necessary to search for motifs.")
+parser.add_argument("--motifs", action='store_false', help="If you want to search for motifs influenced by SNPs.")
 parser.add_argument("--genome_version", type=str, nargs='?', choices=['hg38','mm39','dm3'],default='hg38', help="Choose genome version from list ['hg38','mm39','dm3']. Default is human genome hg38.")
 
 args = parser.parse_args()
@@ -89,7 +92,6 @@ bh_alpha = args.bh_alpha
 pval_threshold = args.pval_threshold
 limited_analysis = args.limited_analysis
 motifs = args.motifs
-R_PACKAGES_PATH = args.r_packages_path
 genome_version = args.genome_version
 PROMOTER_REGIONS_BED_PATH = f'{OUTPUT}/promoter_regions_intermediate_result.bed'
 
@@ -101,9 +103,8 @@ assert bh_alpha >= 0 and bh_alpha <= 1, "Benjamini-Hochberg alpha must be betwee
 
 try:
     os.mkdir(OUTPUT)
-except:
-
-    print('Directory ', OUTPUT, ' already exist. Output files will be saved in this localization.')
+except FileExistsError:
+    print('Directory', OUTPUT, 'already exists. Output files will be saved in this location.')
 
 #check if input files are placed in provided localizations
 fm.check_input_files([INPUT_VCF, ENHANCER_REGIONS, ENHANCER_ACTIVITY, PROMOTER_ACTIVITY, GENE_EXPRESSION, CHROMATIN_LOOPS, GENES_INFO], DEFAULT_ENHANCERS_GENES_ASSIGNMENT)    
@@ -125,20 +126,17 @@ flags = fm.check_programs(GATK, ANNOVAR)
 if flags!= [0,0]:
     raise TypeError('You should provide correct path to program(s)', list(compress(['GATK', 'ANNOVAR'], flags)))
 
-#check if R packages are installed
-if motifs:
-    flags = fm.check_R_packages(R_PACKAGES_PATH)
-    if flags!= [0,0,0]:
-        raise TypeError('You should provide correct path to R packages:', list(compress(['motifbreakR', 'BSgenome.Hsapiens.UCSC.hg38', 'MotifDb'], flags)))
-
 #prepare ANNOVAR database
 if genome_version == 'hg38':
     if fm.prepare_hg38_annovar_database(ANNOVAR)==1:
         raise TypeError(f'ANNOVAR database hg38 cound not be installed. You can install it manually from annovar website. It should be placed in {ANNOVAR}/humandb directory and unpacked.')
-elif genome_version == 'mm39':
+if genome_version == 'mm39':
     if fm.prepare_mm39_annovar_database(ANNOVAR)==1:
         raise TypeError(f'ANNOVAR database mm39 cound not be installed. You can install it manually from annovar website. It should be placed in {ANNOVAR}/mousedb directory and unpacked.')
-
+if genome_version == 'dm3':
+    if fm.prepare_dm3_annovar_database(ANNOVAR)==1:
+        raise TypeError(f'ANNOVAR database dm3 cound not be installed. You can install it manually from annovar website. It should be placed in {ANNOVAR}/flydb directory and unpacked.')
+    
 #check if input .vcf file is indexed - it has to be to use some GATK functions
 fm.index_input_vcf(INPUT_VCF, GATK)
 
@@ -160,11 +158,11 @@ enriched_promoter_snps_df, enriched_enhancer_snps_df = fm.select_enriched_snps(f
 
 if motifs:
     #select SNPs in motifs
-    enriched_promoter_snps_df, enriched_enhancer_snps_df = fm.find_motifs(enriched_promoter_snps_df, enriched_enhancer_snps_df, OUTPUT, R_PACKAGES_PATH)
+    enriched_promoter_snps_df, enriched_enhancer_snps_df = fm.find_motifs(enriched_promoter_snps_df, enriched_enhancer_snps_df, OUTPUT, genome_version)
 
 #assigning genes to promoters and enhancers
 enriched_promoter_snps_gene = fm.assign_genes_to_promoter_snps(enriched_promoter_snps_df, PROMOTER_REGIONS_BED_PATH)
-enriched_promoter_snps_gene = fm.assign_chromatin_contacting_gene_to_promoter_with_loops(enriched_promoter_snps_gene, genes_info_prepared, CHROMATIN_LOOPS,OUTPUT)
+enriched_promoter_snps_gene = fm.assign_chromatin_contacting_gene_with_loops(enriched_promoter_snps_gene, genes_info_prepared, CHROMATIN_LOOPS,OUTPUT,'promoter')
 
 enriched_enhancer_snps_gene = fm.assign_genes_intronic_enhancer_snps(enriched_enhancer_snps_df, ENHANCER_REGIONS, genes_info_prepared)
 enriched_promoter_snps_gene = fm.change_table_format_promoter(enriched_promoter_snps_gene, genes_info_prepared)
@@ -173,16 +171,18 @@ if limited_analysis:
         fm.assign_closest_gene_to_enhancers(enriched_enhancer_snps_gene, genes_info_prepared)
 
     enriched_enhancer_snps_gene_closest_contacts = \
-        fm.assign_chromatin_contacting_gene_to_enhancer_with_loops(enriched_enhancer_snps_gene_closest, genes_info_prepared, CHROMATIN_LOOPS,OUTPUT)
+        fm.assign_chromatin_contacting_gene_with_loops(enriched_enhancer_snps_gene_closest, genes_info_prepared, CHROMATIN_LOOPS,OUTPUT,'enhancer')
     enriched_enhancer_snps_genes_collected = \
         fm.reformat_target_genes_enh(enriched_enhancer_snps_gene_closest_contacts, genes_info_prepared)
 
     fm.remove_unnecessary_files(OUTPUT)
     if DEFAULT_ENHANCERS_GENES_ASSIGNMENT_is_available==1:
         assigned_genes_to_enhancers = pd.read_csv(DEFAULT_ENHANCERS_GENES_ASSIGNMENT)
-        enriched_enhancer_snps_genes_collected = enriched_enhancer_snps_genes_collected.merge(assigned_genes_to_enhancers[['enh_start','enh_end','H3K27ac-expression correlation p-values']], on=['enh_start', 'enh_end'], how='left').fillna('.')
+        enriched_enhancer_snps_genes_collected = enriched_enhancer_snps_genes_collected.merge(assigned_genes_to_enhancers[['CHROM','enh_start','enh_end','H3K27ac-expression correlation p-values']], on=['CHROM','enh_start', 'enh_end'], how='left').fillna('.')
     fm.save_limited_results(enriched_promoter_snps_gene, enriched_enhancer_snps_genes_collected, OUTPUT)
+    print('Time of analysis: start - ',start_time,' end - ', time.ctime())
     sys.exit("Limited analysis finished.")
+    
 
 
 
@@ -192,7 +192,7 @@ if DEFAULT_ENHANCERS_GENES_ASSIGNMENT_is_available==0:
         fm.assign_closest_gene_to_enhancers(enriched_enhancer_snps_gene, genes_info_prepared)
 
     enriched_enhancer_snps_gene_closest_contacts = \
-        fm.assign_chromatin_contacting_gene_to_enhancer_with_loops(enriched_enhancer_snps_gene_closest, genes_info_prepared, CHROMATIN_LOOPS,OUTPUT)
+        fm.assign_chromatin_contacting_gene_with_loops(enriched_enhancer_snps_gene_closest, genes_info_prepared, CHROMATIN_LOOPS,OUTPUT,'enhancer')
     enriched_enhancer_snps_genes_collected = \
         fm.reformat_target_genes_enh(enriched_enhancer_snps_gene_closest_contacts, genes_info_prepared)
 
@@ -201,17 +201,17 @@ if DEFAULT_ENHANCERS_GENES_ASSIGNMENT_is_available==0:
     enriched_enhancer_snps_genes_collected_corelations = \
         fm.check_signal_gene_expression_correlation_enhancer(enriched_enhancer_snps_genes_collected, ENHANCER_ACTIVITY, GENE_EXPRESSION, pval_threshold)
 
-    assigned_genes_to_enhancers = enriched_enhancer_snps_genes_collected_corelations[['enh_start','enh_end','Transcript','Gene','Gene_ID','genomic element','H3K27ac-expression correlation p-values','relation']].drop_duplicates()
+    assigned_genes_to_enhancers = enriched_enhancer_snps_genes_collected_corelations[['CHROM','enh_start','enh_end','Transcript','Gene','Gene_ID','genomic element','H3K27ac-expression correlation p-values','relation']].drop_duplicates()
     assigned_genes_to_enhancers.to_csv(OUTPUT + '/assigned_genes_to_enhancers.csv')
     DEFAULT_ENHANCERS_GENES_ASSIGNMENT = OUTPUT + '/assigned_genes_to_enhancers.csv'
 
 else:
-    assigned_genes_to_enhaners = pd.read_csv(DEFAULT_ENHANCERS_GENES_ASSIGNMENT)
+    assigned_genes_to_enhancers = pd.read_csv(DEFAULT_ENHANCERS_GENES_ASSIGNMENT)
 
 
 #enriched_enhancer_snps_df join with assigned_genes_to_enhancers
 enriched_enhancer_snps = enriched_enhancer_snps_gene.drop(columns=['Transcript'])
-enriched_enhancer_snps_genes_collected_corelations = enriched_enhancer_snps.merge(assigned_genes_to_enhancers, left_on=['enh_start', 'enh_end', 'genomic element'], right_on=['enh_start', 'enh_end','genomic element'], how='right')
+enriched_enhancer_snps_genes_collected_corelations = enriched_enhancer_snps.merge(assigned_genes_to_enhancers, left_on=['CHROM','enh_start', 'enh_end', 'genomic element'], right_on=['CHROM','enh_start', 'enh_end','genomic element'], how='right')
 
 
 #calculate correlation between genotype and gene expression
@@ -225,5 +225,5 @@ fm.remove_unnecessary_files(OUTPUT)
 
 #save and visualize results
 fm.visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHANCER_ACTIVITY, PROMOTER_ACTIVITY, pval_threshold)
-print('Time of analysis: start - ',start_time,' end - ', time.ctime(), )
+print('Time of analysis: start - ',start_time,' end - ', time.ctime())
 
