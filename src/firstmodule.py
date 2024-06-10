@@ -578,7 +578,7 @@ def assign_chromatin_contacting_gene_with_loops(snps, genes_info, CHROMATIN_LOOP
     # Merge regions that intersect with at least one anchor
     ll_region = looplist.merge(anchor_region_df, right_on=['chr1', 'anchor_start', 'anchor_end'],left_on=['chr1', 'x1', 'x2'], how='left', suffixes=('', '_left'))
     ll_region = ll_region.merge(anchor_region_df, right_on=['chr1', 'anchor_start', 'anchor_end'],left_on=['chr2', 'y1', 'y2'], how='left', suffixes=('', '_right'))
-    ll_region = ll_region[ll_region['CHROM'].notna() | ll_region['CHROM_right'].notna()]
+    ll_region = ll_region[ll_region['CHROM'].notna() | ll_region['CHROM_right'].notna()] # because above we do left merging 
 
     # Merge transcripts that intersect with at least one anchor
     ll_region_transc = ll_region.merge(anchor_transcripts_df, right_on=['chr1', 'anchor_start', 'anchor_end'],left_on=['chr1', 'x1', 'x2'], how='left', suffixes=('', '_left'))
