@@ -12,7 +12,6 @@ programs_path = '/home/julia/Desktop/uni/projekt_warianty/programs'
 data_path = base_path + '/data'
 print('Default input data will be taken from:', data_path)
 
-
 parser = argparse.ArgumentParser()
 parser.add_argument("--gatk_path", type=str, nargs='?', default= programs_path + "/gatk/gatk-4.4.0.0/gatk", help="Path to GATK program.")
 parser.add_argument("--annovar_path", type=str, nargs='?', default= programs_path + "/annovar/", help="Path to ANNOVAR program.")
