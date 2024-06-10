@@ -14,10 +14,8 @@ print('Default input data will be taken from:', data_path)
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--gatk_path", type=str, nargs='?', default= programs_path + \
-                    "/gatk/gatk-4.4.0.0/gatk", help="Path to GATK program.")
-parser.add_argument("--annovar_path", type=str, nargs='?', default= programs_path + \
-                    "/annovar/", help="Path to ANNOVAR program.")
+parser.add_argument("--gatk_path", type=str, nargs='?', default= programs_path + "/gatk/gatk-4.4.0.0/gatk", help="Path to GATK program.")
+parser.add_argument("--annovar_path", type=str, nargs='?', default= programs_path + "/annovar/", help="Path to ANNOVAR program.")
 parser.add_argument("--input_vcf", type=str, nargs='?', default= data_path + "/Symfonia_all.hard_filtered.selected.vcf.gz", 
                     help="Path to input VCF file. It can be gzipped.")
 parser.add_argument("--enhancer_regions", type=str, nargs='?', default= data_path + "/brain_enhancers_active.bed", 
@@ -41,10 +39,11 @@ parser.add_argument("--chromatin_loops", type=str, nargs='?', default= data_path
                     help="Path to directory containing file with chromatin loops. It should have tab as separator.")
 parser.add_argument("--genes_info", type=str, nargs='?', default= data_path + '/hg38_genes_transcripts_info.csv', 
                     help="Path to CSV file with information about genes.")
-parser.add_argument("--default_enhancers_genes_assignment",  type=str, nargs='?', 
-                    help="You can provide path to CSV file with already assigned genes to enhancers. \
-                        It should have columns: CHROM, enh_start, enh_end, Gene, genomic element, H3K27ac-expression correlation p-values, relation.\
-                        If you won't provide path, genes will be assigned to enhancers during analysis.")
+parser.add_argument("--default_enhancers_genes_assignment",  type=str, nargs='?',
+                    help="You can specify the path to a CSV file with genes already mapped to enhancers.  \
+                    It should have columns: CHROM, enh_start, enh_end, gene, genomic element, H3K27ac-expression correlation p-values, relation. \
+                    If you don't specify a path, genes will be mapped to enhancers during the analysis and such a file will be generated and saved \
+                    in the output directory (except for limited analysis).")
 #default='output/assigned_genes_to_enhancers.csv',
 
 parser.add_argument("--freq_filter_target", type=str, choices=['r', 'c'], default='r', nargs='?', 
@@ -52,8 +51,8 @@ parser.add_argument("--freq_filter_target", type=str, choices=['r', 'c'], defaul
 parser.add_argument("--freq_filter_cutoff", type=float, default=0.01, nargs='?', 
                     help="Set cut-off point for frequency filter. It expresses how rare or how common variant you what to select (rare/common depends on freq_filter_target argument)")
 parser.add_argument("--population", type=str, nargs='*', choices=['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL'], default=['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL'],
-                    help="Choose population which input data will be copared with from a list ['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL']. \
-                        You can pass multiple arguments. If you won't pass any argument, whole population frequency will be used.")
+                    help="Select the population with which to compare the input data from a list ['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL']. \
+                        You can pass more than one argument. If you don't pass an argument, the frequency of the whole population is used (value ALL).")
 parser.add_argument("--freq_filter_missing", type=str, choices=['r', 'c'], default='r', nargs='?', 
                     help="Choose 'r' (rare) or 'c' (common). It expresses if you want to treat variant with missing frequency data as rare or common variant.")
 parser.add_argument("--reference_population", type=str, choices=['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL'], default='ALL', nargs='?', 
