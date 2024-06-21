@@ -1,5 +1,5 @@
-# search-for-regulatory-variants
-Preparing a tool for searching regulatory variants in the genome.
+# ReViA - Regulatory Variants Annotations
+Preparing a tool for searching and annotating regulatory variants in the genome.
 
 All key functions are located in directory *src* in the file *firstmodule.py*, and their execution takes place in the file *main.py*.
 
