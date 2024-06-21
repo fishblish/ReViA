@@ -393,7 +393,7 @@ def prepare_motifs_object():
         library('motifbreakR')
         library('BSgenome.Hsapiens.UCSC.hg38')
         library('MotifDb')
-        motifs <- query(MotifDb, andStrings=c("hocomocov11", "hsapiens"))    # zmienić dla innych gatunków
+        motifs <- query(MotifDb, andStrings=c("hocomocov11", "hsapiens"))    # czy to jest ok?
     ''')
 
 
