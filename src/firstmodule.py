@@ -387,7 +387,7 @@ def prepare_motifs_object():
     import rpy2.robjects as robjects
     from rpy2.rinterface_lib.callbacks import logger as rpy2_logger
     import logging
-
+    rpy2_logger.setLevel(logging.ERROR)
     robjects.r('''
         library('motifbreakR')
         library('BSgenome.Hsapiens.UCSC.hg38')
