@@ -177,7 +177,7 @@ if limited_analysis:
     if DEFAULT_ENHANCERS_GENES_ASSIGNMENT_is_available==1:
         assigned_genes_to_enhancers = pd.read_csv(DEFAULT_ENHANCERS_GENES_ASSIGNMENT)
         enriched_enhancer_snps_genes_collected = enriched_enhancer_snps_genes_collected.merge(assigned_genes_to_enhancers[['CHROM','enh_start','enh_end','H3K27ac-expression correlation p-values']], on=['CHROM','enh_start', 'enh_end'], how='left').fillna('.')
-    fm.save_limited_results(enriched_promoter_snps_gene, enriched_enhancer_snps_genes_collected, OUTPUT)
+    fm.save_limited_results(enriched_promoter_snps_gene, enriched_enhancer_snps_genes_collected, OUTPUT, motifs)
     print('Time of analysis: start - ',start_time,' end - ', time.ctime())
     sys.exit("Limited analysis finished.")
     
@@ -222,6 +222,5 @@ enhancer_snps, promoter_snps = fm.check_genotype_signal_correlation(enhancer_snp
 fm.remove_unnecessary_files(OUTPUT)
 
 #save and visualize results
-fm.visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHANCER_ACTIVITY, PROMOTER_ACTIVITY, pval_threshold)
+fm.visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHANCER_ACTIVITY, PROMOTER_ACTIVITY, pval_threshold, motifs)
 print('Time of analysis: start - ',start_time,' end - ', time.ctime())
-

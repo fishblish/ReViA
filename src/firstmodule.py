@@ -820,7 +820,6 @@ def calculate_correlation_genotype_gene(row, counts):
 
     genotype_vector = row[[sample+'.var' for sample in samples]]
     if np.std(expression_vector) != 0: 
-        print('step2')
         rho, pval = spearmanr(genotype_vector, expression_vector)
         if str(rho) != 'nan':
             return pd.Series([round(pval,3), rho>0])
@@ -915,6 +914,10 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
         (promoter_snps['genotype_act_corr_pval'] == '.') | 
         (promoter_snps['genotype_act_corr_sign'] == promoter_snps['gene_expr_correlations_sign']))
     promoter_snps = promoter_snps[mask]
+
+    if len(enhancer_snps) == 0 and len(promoter_snps) == 0:
+        print('No significant results found.')
+        return
 
     promoter_snps = promoter_snps.sort_values(by = 'gene_expr_correlations_pval')
     enhancer_snps = enhancer_snps.sort_values(by = 'gene_expr_correlations_pval')
@@ -1160,6 +1163,9 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
 
 
 def save_limited_results(promoter_snps, enhancer_snps, OUTPUT, motifs):
+    if len(promoter_snps) == 0 and len(enhancer_snps) == 0:
+        print('No significant results found.')
+        return
     # format columns
     gnomad_cols = [col for col in enhancer_snps if 'gnomAD' in col]
     pval_cols = [col for col in enhancer_snps if 'pval' in col]
