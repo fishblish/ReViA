@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from scipy.stats import binom_test, spearmanr
+from scipy.stats import binomtest, spearmanr
 from statsmodels.sandbox.stats.multicomp import multipletests
 import pybedtools as pbt
 import os
@@ -307,9 +307,9 @@ def calc_binom_pval(row, p_col, target='r'):
     assert p <= 1.0 and p >= 0.0, "Population frequency must be between 0 and 1"
     assert target in ['r', 'c'], "Target must be 'r' or 'c'"
     if target == 'r':
-        return binom_test(x, n, p, alternative='greater')
+        return binomtest(x, n, p, alternative='greater')
     else:
-        return binom_test(x, n, p, alternative='less')
+        return binomtest(x, n, p, alternative='less')
 
 
 def select_enriched_snps(filtered_variants_files_dict, GATK, reference_population, bh_alpha=0.05, target='r'):
