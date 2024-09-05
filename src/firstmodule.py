@@ -335,9 +335,11 @@ def select_enriched_snps(filtered_variants_files_dict, GATK, reference_populatio
 
     for df in [rare_enhancer_snps, rare_promoter_snps]:
         df['binom_pval'] = df.apply(calc_binom_pval, axis=1, args=(reference_population_cmd,target,))
-
+        df['binom_pval'] = df['binom_pval'].apply(lambda result: result.pvalue if hasattr(result, 'pvalue') else float('nan'))
+        pvals = df['binom_pval'].dropna().tolist()
+        
         # apply correction for multiple hypothesis testing with the Benjamini-Hochberg procedure, use FDR = bh_alpha
-        multipletests_correction = multipletests(df['binom_pval'], alpha=bh_alpha,
+        multipletests_correction = multipletests(pvals, alpha=bh_alpha,
                                                  method='fdr_bh', is_sorted=False, returnsorted=False)
         df['B-H_reject_H0'] = multipletests_correction[0]
         df['corrected_binom_pval'] = multipletests_correction[1]
