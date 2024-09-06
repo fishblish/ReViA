@@ -62,7 +62,7 @@ parser.add_argument("--bh_alpha", type=float, default=0.01, nargs='?',
 parser.add_argument("--pval_threshold", type=float, default=0.15, nargs='?', help="Set cut-off point for p-value in correlation tests.")
 parser.add_argument("-limited_analysis", action='store_true', help="If you have only input VCF file, you can use this flag to run analysis without enhancer activity, promoter activity and gene expression.")
 
-parser.add_argument("--motifs", action='store_false', help="If you want to search for motifs influenced by SNPs.")
+parser.add_argument("--without_motifs", action='store_true', help="If you want to omit searching for motifs influenced by SNPs.")
 parser.add_argument("--genome_version", type=str, nargs='?', choices=['hg38','mm39','dm3'],default='hg38', help="Choose genome version from list ['hg38','mm39','dm3']. Default is human genome hg38.")
 
 args = parser.parse_args()
@@ -89,7 +89,7 @@ reference_population = args.reference_population
 bh_alpha = args.bh_alpha
 pval_threshold = args.pval_threshold
 limited_analysis = args.limited_analysis
-motifs = args.motifs
+motifs = not args.without_motifs
 genome_version = args.genome_version
 PROMOTER_REGIONS_BED_PATH = f'{OUTPUT}/promoter_regions_intermediate_result.bed'
 
