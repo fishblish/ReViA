@@ -73,12 +73,12 @@ def index_input_vcf(INPUT_VCF, GATK):
     vcf_file_name = INPUT_VCF.split('/')[-1]
 
     if (vcf_file_name+'.tbi' not in os.listdir(vcf_path)):
-        print('Indexing vcf file')
+        print('Indexing vcf file.')
         cmd = GATK + ' IndexFeatureFile -I ' + INPUT_VCF
         try:
             result = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT,
                                                 universal_newlines=True).splitlines()
-            print('VCF file indexed')
+            print('VCF file indexed.')
         except subprocess.CalledProcessError as e:
             print(f"Command '{cmd}' failed with error code {e.returncode}:\n{e.output}")
 
@@ -120,7 +120,7 @@ def select_biallelic_inside_regulatory_regions(GATK, INPUT_VCF, promoter_regions
         log2 = subprocess.check_output(command2, shell=True, stderr=subprocess.STDOUT,
                                        universal_newlines=True).splitlines()
         count_logs.append(log2)
-        print(f"Number of biallelic SNPs in {r} regions:{log2[-1]} \n")
+        print(f"Number of biallelic SNPs in {r} regions:{log2[-1]}.")
     logs = [select_logs, count_logs]
     return result_files
 
@@ -142,7 +142,7 @@ def prepare_hg38_annovar_database(ANNOVAR):
                 try:
                     logs = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT,
                                                     universal_newlines=True).splitlines()
-                    print('Annovar database human genome 38 unpacked under path:', ANNOVAR + '/humandb/')
+                    print('Annovar database human genome 38 unpacked under path:', ANNOVAR + '/humandb/.')
                     return 0
                 except subprocess.CalledProcessError as e:
                     print('ANNOVAR database could not be unpacked. Please check if you have enough space on your disk.')
@@ -152,10 +152,10 @@ def prepare_hg38_annovar_database(ANNOVAR):
             
     command = f'perl {ANNOVAR}annotate_variation.pl -buildver hg38 -downdb -webfrom annovar gnomad_genome {ANNOVAR}/humandb/'
     try:
-        print('Database need to be downloaded')
+        print('Database need to be downloaded.')
         logs = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT,
                                             universal_newlines=True).splitlines()
-        print('Annovar database human genome 38 downloaded under path:', ANNOVAR + '/humandb/') #'hg38_gnomad_genome.txt' is 17G heavy
+        print('Annovar database human genome 38 downloaded under path:', ANNOVAR + '/humandb/.') #'hg38_gnomad_genome.txt' is 17G heavy
         downloaded_flag = 0
     except subprocess.CalledProcessError as e:
         print(f"Command '{command}' failed with error code {e.returncode}:\n{e.output}")
@@ -186,7 +186,7 @@ def prepare_mm39_annovar_database(ANNOVAR):
     try:
         logs = subprocess.check_output(command3, shell=True, stderr=subprocess.STDOUT,
                                             universal_newlines=True).splitlines()
-        print(f'Annovar database mouse genome 39 downloaded under path: {ANNOVAR}/mousedb/')
+        print(f'Annovar database mouse genome 39 downloaded under path: {ANNOVAR}/mousedb/.')
         downloaded_flag = 0
     except subprocess.CalledProcessError as e:
         print(f"Command '{command3}' failed with error code {e.returncode}:\n{e.output}")
@@ -217,7 +217,7 @@ def prepare_dm3_annovar_database(ANNOVAR):
     try:
         logs = subprocess.check_output(command3, shell=True, stderr=subprocess.STDOUT,
                                             universal_newlines=True).splitlines()
-        print(f'Annovar database drosophila genome 3 downloaded under path: {ANNOVAR}/flydb/')
+        print(f'Annovar database drosophila genome 3 downloaded under path: {ANNOVAR}/flydb/.')
         downloaded_flag = 0
     except subprocess.CalledProcessError as e:
         print(f"Command '{command3}' failed with error code {e.returncode}:\n{e.output}")
@@ -240,7 +240,7 @@ def annotate_freq(variants_vcf_file_dict, ANNOVAR, genome_version):
             annovar_logs.append(log)
         except subprocess.CalledProcessError as e:
             print(f"Command '{command}' failed with error code {e.returncode}:\n{e.output}")
-        print(f"Done: frequencies annotated for variants in {r} regions")
+        print(f"Done: frequencies annotated for variants in {r} regions.")
     return result_vcf_files_dict
 
 # filter snps based on frequency in popultaion
@@ -292,7 +292,7 @@ def select_snps_by_freq(annotated_variants_file_dict, GATK, population, treating
         log = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT,
                                       universal_newlines=True).splitlines()
         select_rare_logs.append(log)
-        print("Counting selected", target_full_word[target], "variants for", r)
+        print(f"Counting selected {target_full_word[target]} variants for {r}.")
         count_variants(GATK, result_filtered_files_dict[r])
 
     return result_filtered_files_dict
@@ -528,7 +528,7 @@ def assign_genes_to_promoter_snps(rare_enriched_promoter_snps, PROMOTER_REGIONS_
                                                       rare_enriched_promoter_snps_intersection_df, how="left",
                                                       on=["CHROM", "POS"])
     rare_enriched_promoter_snps_gene['relation'] = 'containing'
-    print('Done: assigning genes to promoters')
+    print('Done: assigning genes to promoters.')
     return rare_enriched_promoter_snps_gene
 
 # assign contacting transcripts using chromatin loops list
@@ -695,7 +695,7 @@ def reformat_target_genes_enh(rare_enriched_enhancer_snps_gene_closest_contacts,
     new_table = new_table.groupby(new_table.columns.difference(['relation']).tolist(), as_index=False).agg({'relation': ';'.join})
     new_table['relation'] = new_table['relation'].apply(lambda x: ';'.join(list(set(x.split(';')))))
     new_table = pd.concat([new_table, snps_contacting], ignore_index=True)
-    print('Done: assigning putative genes to enhancers')
+    print('Done: assigning putative genes to enhancers.')
     return new_table
 
 
@@ -752,7 +752,7 @@ def check_signal_gene_expression_correlation_enhancer(rare_enriched_enhancer_snp
     rare_enriched_enhancer_snps_genes_collected_corelations = rare_enriched_enhancer_snps_genes_collected_coverage.drop(
         labels=samples, axis=1)
     rare_enriched_enhancer_snps_genes_collected_corelations = rare_enriched_enhancer_snps_genes_collected_corelations[rare_enriched_enhancer_snps_genes_collected_corelations["H3K27ac-expression correlation p-values"] != "."].copy()
-    print('Done: calculating correlation between enhancer activity and gene expression')
+    print('Done: calculating correlation between enhancer activity and gene expression.')
     return rare_enriched_enhancer_snps_genes_collected_corelations
 
 #remove files with intermediate results, which constain string 'intermediate' in filename
@@ -837,7 +837,7 @@ def check_gene_genotype_correlation(GENE_EXPRESSION, promoter_snps, enhancer_snp
     enhancer_snps[['gene_expr_correlations_pval','gene_expr_correlations_sign']] = enhancer_snps.apply(calculate_correlation_genotype_gene, args=(counts,), axis=1)
     promoter_snps[['gene_expr_correlations_pval','gene_expr_correlations_sign']] = promoter_snps.apply(calculate_correlation_genotype_gene, args=(counts,), axis=1)
 
-    print('Done: calculating correlation between genotype and gene expression')
+    print('Done: calculating correlation between genotype and gene expression.')
     return promoter_snps, enhancer_snps
 
 def calculate_correlation_genotype_signal(row,samples_act):
@@ -878,7 +878,7 @@ def check_genotype_signal_correlation(enhancer_snps, promoter_snps, ENHANCER_ACT
     merged = merged[['CHROM','enh_start','enh_end','POS']+samples_act+samples_var]
     merged.set_index(enhancer_snps.index, inplace=True)
     enhancer_snps[['genotype_act_corr_pval','genotype_act_corr_sign']] = merged.apply(calculate_correlation_genotype_signal, args=(samples_act,), axis=1)
-    print('Done: calculating correlation between genotype and enhancer activity')
+    print('Done: calculating correlation between genotype and enhancer activity.')
 
     # Calculations for promoters
     h3k27ac_prom = pd.read_csv(PROMOTER_ACTIVITY, sep="\t")
@@ -890,7 +890,7 @@ def check_genotype_signal_correlation(enhancer_snps, promoter_snps, ENHANCER_ACT
     merged.set_index(promoter_snps.index, inplace=True)
     promoter_snps[['genotype_act_corr_pval','genotype_act_corr_sign']]= merged.apply(calculate_correlation_genotype_signal, args=(samples_act,), axis=1)
 
-    print('Done: calculating correlation between genotype and promoter h3k27ac signal')
+    print('Done: calculating correlation between genotype and promoter h3k27ac signal.')
 
     return enhancer_snps, promoter_snps
 
@@ -933,8 +933,10 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
     h3k27ac_prom = h3k27ac_prom.rename(columns={"ID": "Transcript"})
 
 
+    promoter_snps = promoter_snps.drop(columns = ['prom_start', 'prom_end'])
     enhancer_snps = enhancer_snps.drop_duplicates()
     promoter_snps = promoter_snps.drop_duplicates()
+    promoter_snps.to_csv(OUTPUT+'/promoter_snps_to_check.csv', index=False)
 
     #save plots to one pdf file
     with PdfPages(OUTPUT+'/regulatory_snps_plots.pdf') as pdf:  
@@ -1120,14 +1122,7 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
                 pdf.savefig()
                 plt.close()
         
-    # dropping not important columns
-    cols_to_drop_enh = [col for col in enhancer_snps.columns if (('.AD' in col) or ('.GT' in col) or ('.var' in col))]
-    cols_to_drop_prom = [col for col in promoter_snps.columns if (('.AD' in col) or ('.GT' in col) or ('.var' in col))]
-    cols_to_drop_enh = cols_to_drop_enh +['enh_start', 'enh_end']
-    cols_to_drop_enh = cols_to_drop_enh + [col for col in enhancer_snps.columns if ('all_snps' in col) or ('Unnamed' in col)]
-    cols_to_drop_prom = cols_to_drop_prom + [col for col in promoter_snps.columns if ('all_snps' in col) or ('Unnamed' in col)]
-    enhancer_snps = enhancer_snps.drop(columns = cols_to_drop_enh)
-    promoter_snps = promoter_snps.drop(columns = cols_to_drop_prom)
+
 
     #format columns
     enhancer_snps = enhancer_snps.rename(columns = {'genotype_act_corr_pval' : 'p-value_for_correlation_genotype_vs_h3k27ac',
@@ -1141,6 +1136,15 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
                                                     'Gene':'Gene_name', 'binom_pval': 'p-value_for_binomial_test', 
                                                     'corrected_binom_pval': 'corrected_p-value_for_binomial_test'})
 
+    # dropping not important columns
+    cols_to_drop_enh = [col for col in enhancer_snps.columns if (('.AD' in col) or ('.GT' in col) or ('.var' in col))]
+    cols_to_drop_prom = [col for col in promoter_snps.columns if (('.AD' in col) or ('.GT' in col) or ('.var' in col))]
+    cols_to_drop_enh = cols_to_drop_enh +['enh_start', 'enh_end']
+    cols_to_drop_prom = cols_to_drop_prom
+    cols_to_drop_enh = cols_to_drop_enh + [col for col in enhancer_snps.columns if ('all_snps' in col) or ('Unnamed' in col)]
+    cols_to_drop_prom = cols_to_drop_prom + [col for col in promoter_snps.columns if ('all_snps' in col) or ('Unnamed' in col)]
+    enhancer_snps = enhancer_snps.drop(columns = cols_to_drop_enh)
+    promoter_snps = promoter_snps.drop(columns = cols_to_drop_prom)
 
     # change columns order
     gnomad_cols = [col for col in enhancer_snps if 'gnomAD' in col]
@@ -1158,10 +1162,8 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
     found_snps = pd.concat([enhancer_snps, promoter_snps], ignore_index=True)
 
     #saving results to csv
-    enhancer_snps.to_csv(OUTPUT+'/final_regulatory_snps_enhancer.csv')
-    promoter_snps.to_csv(OUTPUT+'/final_regulatory_snps_promoter.csv')
     found_snps.to_csv(OUTPUT+'/final_regulatory_snps.csv')
-    print('Found regulatory variants are saved in files:\n', OUTPUT+'/final_regulatory_snps_enhancer.csv\n', OUTPUT+'/final_regulatory_snps_promoter.csv\n', 'Plots are saved in file:', OUTPUT+'/regulatory_snps_plots.pdf')
+    print('Found regulatory variants are saved in the file:', OUTPUT+'/final_regulatory_snps.csv.\n', 'Plots are saved in the file:', OUTPUT+'/regulatory_snps_plots.pdf.')
 
 
 def save_limited_results(promoter_snps, enhancer_snps, OUTPUT, motifs):
@@ -1184,7 +1186,5 @@ def save_limited_results(promoter_snps, enhancer_snps, OUTPUT, motifs):
     found_snps = pd.concat([enhancer_snps, promoter_snps], ignore_index=True)
 
     #save results to csv
-    enhancer_snps.to_csv(OUTPUT+'/limited_final_regulatory_snps_enhancer.csv')
-    promoter_snps.to_csv(OUTPUT+'/limited_final_regulatory_snps_promoter.csv')
     found_snps.to_csv(OUTPUT+'/limited_final_regulatory_snps.csv')
-    print('Found regulatory variants are saved in files:\n', OUTPUT+'/limited_final_regulatory_snps_enhancer.csv\n', OUTPUT+'/limited_final_regulatory_snps_promoter.csv\n', OUTPUT+'/limited_final_regulatory_snps.csv')
+    print('Found regulatory variants are saved in the file:', OUTPUT+'/limited_final_regulatory_snps.csv.')
