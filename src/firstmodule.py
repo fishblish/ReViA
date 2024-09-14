@@ -936,7 +936,6 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
     promoter_snps = promoter_snps.drop(columns = ['prom_start', 'prom_end'])
     enhancer_snps = enhancer_snps.drop_duplicates()
     promoter_snps = promoter_snps.drop_duplicates()
-    promoter_snps.to_csv(OUTPUT+'/promoter_snps_to_check.csv', index=False)
 
     #save plots to one pdf file
     with PdfPages(OUTPUT+'/regulatory_snps_plots.pdf') as pdf:  
