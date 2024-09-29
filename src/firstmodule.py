@@ -344,9 +344,9 @@ def select_enriched_snps(filtered_variants_files_dict, GATK, reference_populatio
         df['B-H_reject_H0'] = multipletests_correction[0]
         df['corrected_binom_pval'] = multipletests_correction[1]
 
-        #round p-values to 3 decimal places
-        df['binom_pval'] = df['binom_pval'].apply(lambda x: round(x, 4))
-        df['corrected_binom_pval'] = df['corrected_binom_pval'].apply(lambda x: round(x, 4))
+        #display p-values in scientific notation
+        df['binom_pval'] = df['binom_pval'].apply(lambda x: '{:.1e}'.format(x))
+        df['corrected_binom_pval'] = df['corrected_binom_pval'].apply(lambda x: '{:.1e}'.format(x))
 
     rare_enriched_promoter_snps = rare_promoter_snps[rare_promoter_snps["B-H_reject_H0"]]
     rare_enriched_enhancer_snps = rare_enhancer_snps[rare_enhancer_snps["B-H_reject_H0"]]
@@ -725,7 +725,7 @@ def calculate_correlation_enh_gene(row, sample_names, counts, threshold):
             rho, pval = spearmanr(enh_act_vector, expr_vector)
 
             if str(rho) != 'nan' and rho > 0 and pval < threshold:
-                return round(pval,3)
+                return pval
             
     elif len(gene_expr_rows) > 1:
         print('Transcript id in gene expression data is not unique: ',transcript)
@@ -824,7 +824,7 @@ def calculate_correlation_genotype_gene(row, counts):
     if np.std(expression_vector) != 0: 
         rho, pval = spearmanr(genotype_vector, expression_vector)
         if str(rho) != 'nan':
-            return pd.Series([round(pval,3), rho>0])
+            return pd.Series([pval, rho>0])
     return pd.Series(['.', '.'])
 
 
@@ -859,7 +859,7 @@ def calculate_correlation_genotype_signal(row,samples_act):
         
     if np.std(enh_act_vector) != 0 and np.std(genotype_vector) != 0:
         rho, pval = spearmanr(genotype_vector, enh_act_vector)
-        return pd.Series([round(pval,3), rho>0])
+        return pd.Series([pval, rho>0])
     else:
         return pd.Series(['.', '.'])
         
@@ -905,6 +905,8 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
     promoter_snps = promoter_snps[(promoter_snps['genotype_act_corr_pval'] == '.') | (promoter_snps['genotype_act_corr_pval'].replace('.', 1).astype(float) < threshold)]
     enhancer_snps = enhancer_snps[(enhancer_snps['genotype_act_corr_pval'] == '.') | (enhancer_snps['genotype_act_corr_pval'].replace('.', 1).astype(float) < threshold)]
 
+
+
     # select results where sign of correlation is the same for gene expression and enhancer activity (only if signs for both tests are available)
     mask = ((enhancer_snps['gene_expr_correlations_pval'] == '.') |
         (enhancer_snps['genotype_act_corr_pval'] == '.') | 
@@ -923,6 +925,14 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
 
     promoter_snps = promoter_snps.sort_values(by = 'gene_expr_correlations_pval')
     enhancer_snps = enhancer_snps.sort_values(by = 'gene_expr_correlations_pval')
+
+    # apply scientific notation to p-values
+    enhancer_snps['genotype_act_corr_pval'] = enhancer_snps['genotype_act_corr_pval'].apply(lambda x: '{:.1e}'.format(float(x)) if x != '.' else '.')
+    enhancer_snps['gene_expr_correlations_pval'] = enhancer_snps['gene_expr_correlations_pval'].apply(lambda x: '{:.1e}'.format(float(x)) if x != '.' else '.')
+    promoter_snps['genotype_act_corr_pval'] = promoter_snps['genotype_act_corr_pval'].apply(lambda x: '{:.1e}'.format(float(x)) if x != '.' else '.')
+    promoter_snps['gene_expr_correlations_pval'] = promoter_snps['gene_expr_correlations_pval'].apply(lambda x: '{:.1e}'.format(float(x)) if x != '.' else '.')
+    enhancer_snps['H3K27ac-expression correlation p-values']= enhancer_snps['H3K27ac-expression correlation p-values'].apply(lambda x: '{:.1e}'.format(float(x)) if x != '.' else '.')
+
     counts = pd.read_csv(GENE_EXPRESSION, sep='\t')
     counts['Gene'] = counts['Transcript'].apply(lambda x: x.split('_')[1])
     h3k27ac_enh = pd.read_csv(ENHANCER_ACTIVITY, sep="\t")
@@ -936,6 +946,7 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
     promoter_snps = promoter_snps.drop(columns = ['prom_start', 'prom_end'])
     enhancer_snps = enhancer_snps.drop_duplicates()
     promoter_snps = promoter_snps.drop_duplicates()
+    promoter_snps.to_csv(OUTPUT+'/promoter_snps_to_check.csv', index=False)
 
     #save plots to one pdf file
     with PdfPages(OUTPUT+'/regulatory_snps_plots.pdf') as pdf:  
