@@ -8,6 +8,8 @@ import subprocess
 from pybedtools import BedTool
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+pd.set_option('future.no_silent_downcasting', True)
+
 
 
 def check_programs(GATK, ANNOVAR):
@@ -108,7 +110,7 @@ def select_biallelic_inside_regulatory_regions(GATK, INPUT_VCF, promoter_regions
     for r, regions in [("promoter", PROMOTER_REGIONS_BED_PATH), ("enhancer", ENHANCER_REGIONS)]:
         result_files[r] = f'{OUTPUT}/{r}_intermediate_result.vcf'
         command1 = f"{GATK} SelectVariants -V {INPUT_VCF} -L {regions} --select-type-to-include SNP --restrict-alleles-to BIALLELIC -O {result_files[r]}"
-        print('Selecting biallelic variants for', r)
+        print(f'Selecting biallelic variants located in {r}s.')
         try:
             log1 = subprocess.check_output(command1, shell=True, stderr=subprocess.STDOUT,
                                            universal_newlines=True).splitlines()
@@ -131,14 +133,14 @@ def select_biallelic_inside_regulatory_regions(GATK, INPUT_VCF, promoter_regions
 def prepare_hg38_annovar_database(ANNOVAR):
     downloaded_flag=1
     if ('humandb' in os.listdir(ANNOVAR)):
-        if ('hg38_gnomad_genome.txt' in os.listdir(ANNOVAR + '/humandb')):
+        if ('hg38_gnomad41_genome.txt' in os.listdir(ANNOVAR + '/humandb')):
             print('You already have human genome 38 database ready to use.')
             return 0
-        if ('hg38_gnomad_genome.txt.gz' in os.listdir(ANNOVAR + '/humandb')):
+        if ('hg38_gnomad41_genome.txt.gz' in os.listdir(ANNOVAR + '/humandb')):
             print('You already have human genome 38 database. It need to be unpacked. Do you want to unpack it now? (y/n)')
             answer = input()
             if answer == 'y':
-                command = f'gunzip {ANNOVAR}/humandb/hg38_gnomad_genome.txt.gz'
+                command = f'gunzip {ANNOVAR}/humandb/hg38_gnomad41_genome.txt.gz'
                 try:
                     logs = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT,
                                                     universal_newlines=True).splitlines()
@@ -150,12 +152,12 @@ def prepare_hg38_annovar_database(ANNOVAR):
             else:
                 return 1
             
-    command = f'perl {ANNOVAR}annotate_variation.pl -buildver hg38 -downdb -webfrom annovar gnomad_genome {ANNOVAR}/humandb/'
+    command = f'perl {ANNOVAR}annotate_variation.pl -buildver hg38 -downdb -webfrom annovar gnomad41_genome {ANNOVAR}/humandb/'
     try:
-        print('Database need to be downloaded.')
+        print('Database hg38 (version 41) needs to be downloaded.')
         logs = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT,
                                             universal_newlines=True).splitlines()
-        print('Annovar database human genome 38 downloaded under path:', ANNOVAR + '/humandb/.') #'hg38_gnomad_genome.txt' is 17G heavy
+        print('Annovar database human genome 38 downloaded under path:', ANNOVAR + '/humandb/.') #'hg38_gnomad41_genome.txt' is 96G heavy
         downloaded_flag = 0
     except subprocess.CalledProcessError as e:
         print(f"Command '{command}' failed with error code {e.returncode}:\n{e.output}")
@@ -230,8 +232,8 @@ def annotate_freq(variants_vcf_file_dict, ANNOVAR, genome_version):
         out_file = variants_vcf_file_dict[r].split('.vcf')[0]
         result_vcf_files_dict[r] = f'{out_file}.{genome_version}_multianno.vcf'
         
-        db_path = {'hg38': f'{ANNOVAR}/humandb/', 'mm39': f'{ANNOVAR}/mousedb/'}[genome_version]
-        protocol = {'hg38': 'gnomad_genome', 'mm39': 'refGene'}[genome_version]
+        db_path = {'hg38': f'{ANNOVAR}/humandb/', 'mm39': f'{ANNOVAR}/mousedb/'}[genome_version] #to add dm3
+        protocol = {'hg38': 'gnomad41_genome', 'mm39': 'refGene'}[genome_version]
 
         command = f"perl {ANNOVAR}table_annovar.pl {variants_vcf_file_dict[r]} {db_path} -buildver {genome_version} -remove -protocol {protocol} -operation f -nastring . -vcfinput -out {out_file} -polish" 
         try:
@@ -255,13 +257,13 @@ def select_snps_by_freq(annotated_variants_file_dict, GATK, population, treating
     gaps_dict = {'r': f'={cutoff/2}', 'c': '=100.0'}
     ineq_sign = {'r': '<', 'c': '>'}
     target_full_word = {'r': 'rare', 'c': 'common'}
-    population = list(set(population+['ALL']))
 
-    annotations = ['gnomAD_genome_' + p for p in population]
+    annotations = ['gnomad41_genome_AF_' + p for p in population if p != 'all']
+    annotations.append('gnomad41_genome_AF')
     
 
-    print('There will be selected variants which are', target_full_word[target], 'among these populations', population,
-          'for frequency cutoff equal to', cutoff, 'and missing variants in annovar database treated as', target_full_word[treating_gaps])
+    print(f'There will be selected variants which are {target_full_word[target]} among these populations {population} for frequency',
+            f'cutoff equal to {cutoff} and missing variants in annovar database treated as {target_full_word[treating_gaps]}.')
 
     for r in ["promoter", "enhancer"]:
         with open(annotated_variants_file_dict[r], 'r') as i:
@@ -292,7 +294,7 @@ def select_snps_by_freq(annotated_variants_file_dict, GATK, population, treating
         log = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT,
                                       universal_newlines=True).splitlines()
         select_rare_logs.append(log)
-        print(f"Counting selected {target_full_word[target]} variants for {r}.")
+        print(f"Counting selected {target_full_word[target]} variants within {r}s.")
         count_variants(GATK, result_filtered_files_dict[r])
 
     return result_filtered_files_dict
@@ -314,12 +316,15 @@ def calc_binom_pval(row, p_col, target='r'):
 
 def select_enriched_snps(filtered_variants_files_dict, GATK, reference_population, bh_alpha=0.05, target='r'):
     # vcf file to csv table
-    reference_population_cmd = f"gnomAD_genome_{reference_population}"
+    if reference_population == 'all':
+        reference_population_cmd = 'gnomad41_genome_AF'
+    else:
+        reference_population_cmd = f"gnomad41_genome_AF_{reference_population}"
     totable_logs = []
     for r in ["promoter", "enhancer"]:
         command = f"{GATK} VariantsToTable  -V {filtered_variants_files_dict[r]} " \
                   "-F CHROM -F POS -F REF -F ALT -F AC -F AF -F AN " \
-                  f"-F gnomAD_genome_ALL -F {reference_population_cmd} " \
+                  f"-F gnomad41_genome_AF -F {reference_population_cmd} " \
                   f"-O {filtered_variants_files_dict[r].replace('.vcf', '.csv')}"
         log = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT,
                                       universal_newlines=True).splitlines()
@@ -354,8 +359,8 @@ def select_enriched_snps(filtered_variants_files_dict, GATK, reference_populatio
     rare_enriched_enhancer_snps = rare_enriched_enhancer_snps.drop(columns='B-H_reject_H0')
 
     #left only one column with popultaion frequency
-    cols_to_drop_enh = [col for col in rare_enriched_enhancer_snps.columns if ('gnomAD' in col) & (col !=reference_population_cmd)]
-    cols_to_drop_prom = [col for col in rare_enriched_promoter_snps.columns if ('gnomAD' in col) & (col !=reference_population_cmd)]
+    cols_to_drop_enh = [col for col in rare_enriched_enhancer_snps.columns if ('gnomad' in col) & (col !=reference_population_cmd)]
+    cols_to_drop_prom = [col for col in rare_enriched_promoter_snps.columns if ('gnomad' in col) & (col !=reference_population_cmd)]
 
 
     if cols_to_drop_enh and all(col in rare_enriched_enhancer_snps.columns for col in cols_to_drop_enh):
@@ -619,7 +624,7 @@ def assign_genes_intronic_enhancer_snps(rare_enriched_enhancer_snps_df, ENHANCER
     # Intersect information about enhancers with SNPs to assign gene names to SNPs.
     # prepare bedtool objects
     rare_enriched_enhancer_snps_df["POS-1"] = rare_enriched_enhancer_snps_df["POS"] - 1
-    gnomAD_col = [col for col in rare_enriched_enhancer_snps_df.columns if 'gnomAD' in col] # it has one element
+    gnomad_col = [col for col in rare_enriched_enhancer_snps_df.columns if 'gnomad' in col] # it has one element
     rare_enriched_enhancer_snps_bedtool = pbt.BedTool.from_dataframe(
         rare_enriched_enhancer_snps_df[["CHROM", "POS-1", "POS"]])
     enh_bedtool = pbt.BedTool.from_dataframe(enhancers)
@@ -900,10 +905,10 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
     enhancer_snps = enhancer_snps[(enhancer_snps['genotype_act_corr_pval'] != '.') | (enhancer_snps['gene_expr_correlations_pval'] != '.')].copy()
     promoter_snps = promoter_snps[(promoter_snps['genotype_act_corr_pval'] != '.') | (promoter_snps['gene_expr_correlations_pval'] != '.')].copy()
 
-    promoter_snps = promoter_snps[(promoter_snps['gene_expr_correlations_pval'] == '.') | (promoter_snps['gene_expr_correlations_pval'].replace('.', 1).astype(float) < threshold)]
-    enhancer_snps = enhancer_snps[(enhancer_snps['gene_expr_correlations_pval'] == '.') | (enhancer_snps['gene_expr_correlations_pval'].replace('.', 1).astype(float) < threshold)]
-    promoter_snps = promoter_snps[(promoter_snps['genotype_act_corr_pval'] == '.') | (promoter_snps['genotype_act_corr_pval'].replace('.', 1).astype(float) < threshold)]
-    enhancer_snps = enhancer_snps[(enhancer_snps['genotype_act_corr_pval'] == '.') | (enhancer_snps['genotype_act_corr_pval'].replace('.', 1).astype(float) < threshold)]
+    promoter_snps = promoter_snps[(promoter_snps['gene_expr_correlations_pval'] == '.') | (promoter_snps['gene_expr_correlations_pval'].replace('.', 1).infer_objects(copy=False).astype(float) < threshold)]
+    enhancer_snps = enhancer_snps[(enhancer_snps['gene_expr_correlations_pval'] == '.') | (enhancer_snps['gene_expr_correlations_pval'].replace('.', 1).infer_objects(copy=False).astype(float) < threshold)]
+    promoter_snps = promoter_snps[(promoter_snps['genotype_act_corr_pval'] == '.') | (promoter_snps['genotype_act_corr_pval'].replace('.', 1).infer_objects(copy=False).astype(float) < threshold)]
+    enhancer_snps = enhancer_snps[(enhancer_snps['genotype_act_corr_pval'] == '.') | (enhancer_snps['genotype_act_corr_pval'].replace('.', 1).infer_objects(copy=False).astype(float) < threshold)]
 
 
 
@@ -1157,7 +1162,7 @@ def visualize_results(promoter_snps, enhancer_snps, GENE_EXPRESSION, OUTPUT,ENHA
     promoter_snps = promoter_snps.drop(columns = cols_to_drop_prom)
 
     # change columns order
-    gnomad_cols = [col for col in enhancer_snps if 'gnomAD' in col]
+    gnomad_cols = [col for col in enhancer_snps if 'gnomad' in col]
     motif_cols = ['motif_best_match','motif_highest_diff'] if motifs else []
     cols_order_enh = ['CHROM','POS','REF','ALT','AC','AF','AN','Num homref','Num het','Num homalt']+gnomad_cols+['genomic element','Gene_name','Gene_ID','Transcript','relation']+ [col for col in enhancer_snps.columns if ('p-value' in col)]+motif_cols
     enhancer_snps = enhancer_snps.reindex(columns=cols_order_enh)   
@@ -1181,7 +1186,7 @@ def save_limited_results(promoter_snps, enhancer_snps, OUTPUT, motifs):
         print('No significant results found.')
         return
     # format columns
-    gnomad_cols = [col for col in enhancer_snps if 'gnomAD' in col]
+    gnomad_cols = [col for col in enhancer_snps if 'gnomad' in col]
     pval_cols = [col for col in enhancer_snps if 'pval' in col]
     motif_cols = ['motif_best_match','motif_highest_diff'] if motifs else []
     enhancer_snps = enhancer_snps[['CHROM','POS','REF','ALT','AC','AF','AN']+gnomad_cols+['genomic element','Transcript','Gene','Gene_ID','relation']+pval_cols+motif_cols]
