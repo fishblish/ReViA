@@ -8,7 +8,7 @@ import time
 start_time = time.ctime()
 
 base_path = os.path.dirname(os.path.abspath(__file__)).replace('/src', '')
-programs_path = '/home/julia/Desktop/uni/projekt_warianty/programs'
+programs_path = base_path + '/programs'
 data_path = base_path + '/data'
 print('Default input data will be taken from:', data_path)
 
@@ -49,13 +49,13 @@ parser.add_argument("--freq_filter_target", type=str, choices=['r', 'c'], defaul
                     help="Choose 'r' (rare) or 'c' (common). It expresses if you want to select rare or common variants considering frequency in population")
 parser.add_argument("--freq_filter_cutoff", type=float, default=0.01, nargs='?', 
                     help="Set cut-off point for frequency filter. It expresses how rare or how common variant you what to select (rare/common depends on freq_filter_target argument)")
-parser.add_argument("--population", type=str, nargs='*', choices=['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL'], default=['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL'],
-                    help="Select the population with which to compare the input data from a list ['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL']. \
+parser.add_argument("--population", type=str, nargs='*', choices=['afr','ami', 'amr', 'asj', 'eas', 'fin','mid', 'nfe', 'sas', 'all'], default=['afr','ami', 'amr', 'asj', 'eas', 'fin','mid', 'nfe', 'sas', 'all'],
+                    help="Select the population with which to compare the input data from a list ['afr','ami', 'amr', 'asj', 'eas', 'fin','mid', 'nfe', 'sas', 'all']. \
                         You can pass more than one argument. If you don't pass an argument, the frequency of the whole population is used (value ALL).")
 parser.add_argument("--freq_filter_missing", type=str, choices=['r', 'c'], default='r', nargs='?', 
                     help="Choose 'r' (rare) or 'c' (common). It expresses if you want to treat variant with missing frequency data as rare or common variant.")
-parser.add_argument("--reference_population", type=str, choices=['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL'], default='ALL', nargs='?', 
-                    help="Choose reference population for binomial test. It should be in population list: ['AFR', 'AMR', 'ASJ', 'EAS', 'FIN', 'NFE', 'OTH', 'ALL']. \
+parser.add_argument("--reference_population", type=str, choices=['afr','ami', 'amr', 'asj', 'eas', 'fin','mid', 'nfe', 'sas', 'all'], default='all', nargs='?', 
+                    help="Choose reference population for binomial test. It should be in population list: ['afr','ami', 'amr', 'asj', 'eas', 'fin','mid', 'nfe', 'sas', 'all']. \
                         If you won't pass any argument, frequency from whole population will be used.")
 parser.add_argument("--bh_alpha", type=float, default=0.01, nargs='?', 
                     help="Set cut-off point for Benjamini-Hochberg correction.")
